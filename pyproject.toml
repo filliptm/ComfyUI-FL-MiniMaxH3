@@ -1,0 +1,15 @@
+[project]
+name = "ComfyUI-FL-MiniMaxH3"
+description = "MiniMax H3 prompt timelines, beat-planned sampling, pixel-space latent refinement, and shot assembly for ComfyUI"
+version = "1.0.0"
+license = {file = "LICENSE"}
+requires-python = ">=3.9"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/filliptm/ComfyUI-FL-MiniMaxH3"
+
+[tool.comfy]
+PublisherId = "machinedelusions"
+DisplayName = "ComfyUI-FL-MiniMaxH3"
+Icon = "https://avatars.githubusercontent.com/u/55672949"
