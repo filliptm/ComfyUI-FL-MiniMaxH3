@@ -4,14 +4,27 @@ import comfy.samplers
 import comfy.utils
 import nodes
 from comfy_api.latest import io
+from comfy_execution.utils import get_executing_context
 
-from ._latent_helpers import primary_only_noise_mask
+from ._latent_helpers import H3_PIXEL_MULTIPLE, primary_only_noise_mask, target_canvas
+from ._live_preview import publish_preview, send_preview_event
+from ._motion_context import apply_previous_shot_context, motion_context_model
 from .FL_MiniMaxH3PromptTimeline import _apply_timeline, _h3_tensors
 
 
 H3ShotPlan = io.Custom("FL_H3_SHOT_PLAN")
 _MAX_SEED = 0xffffffffffffffff
-_H3_PIXEL_MULTIPLE = 32
+_SAMPLE_PREVIEW_LONG_SIDE = 512
+_UPSCALE_PREVIEW_LONG_SIDE = 768
+
+
+def _execution_ids(node_class):
+    context = get_executing_context()
+    node_id = node_class.hidden.unique_id if node_class.hidden is not None else None
+    if context is not None:
+        node_id = node_id or context.node_id
+        return node_id, context.prompt_id
+    return node_id, None
 
 
 def _validate_shot_plan(plan):
@@ -29,28 +42,11 @@ def _validate_shot_plan(plan):
 
 
 def _target_canvas(source_width, source_height, target_long_side):
-    if target_long_side % _H3_PIXEL_MULTIPLE:
-        raise ValueError(
-            "FL MiniMax H3 Beat Pixel Upscale KSampler target long side must be "
-            f"divisible by {_H3_PIXEL_MULTIPLE}."
-        )
-    source_long_side = max(source_width, source_height)
-    if target_long_side < source_long_side:
-        raise ValueError(
-            "FL MiniMax H3 Beat Pixel Upscale KSampler target long side is smaller than "
-            f"the {source_width}x{source_height} decoded video."
-        )
-
-    scale = target_long_side / source_long_side
-    if source_width >= source_height:
-        target_width = target_long_side
-        target_height = round(source_height * scale / _H3_PIXEL_MULTIPLE) * _H3_PIXEL_MULTIPLE
-    else:
-        target_width = round(source_width * scale / _H3_PIXEL_MULTIPLE) * _H3_PIXEL_MULTIPLE
-        target_height = target_long_side
-    return (
-        max(_H3_PIXEL_MULTIPLE, target_width),
-        max(_H3_PIXEL_MULTIPLE, target_height),
+    return target_canvas(
+        source_width,
+        source_height,
+        target_long_side,
+        "FL MiniMax H3 Beat Pixel Upscale KSampler",
     )
 
 
@@ -69,9 +65,14 @@ def _shot_for_latent(shot_plan, latent):
     if (
         shot.get("start_frame") != metadata.get("start_frame")
         or shot.get("end_frame") != metadata.get("end_frame")
+        or shot.get("authored_frames") != metadata.get("authored_frames")
+        or shot.get("render_frames") != metadata.get("render_frames")
+        or shot.get("motion_context") != metadata.get("motion_context")
     ):
         raise ValueError(
-            "FL MiniMax H3 Beat Pixel Upscale KSampler latent does not match the connected shot plan."
+            "FL MiniMax H3 Beat Pixel Upscale KSampler latent does not match the connected "
+            "shot plan. Connect the exact plan used by FL MiniMax H3 Beat KSampler; when using "
+            "FL MiniMax H3 Shot Motion Context, connect its output to both samplers."
         )
     return shot, metadata
 
@@ -103,10 +104,7 @@ def _pixel_upscale_latent(latent, vae, target_long_side, upscale_method):
         ).movedim(1, -1)
 
     resized_video = vae.encode(images)
-    if (
-        resized_video.ndim != 5
-        or resized_video.shape[:3] != video.shape[:3]
-    ):
+    if resized_video.ndim != 5 or resized_video.shape[:3] != video.shape[:3]:
         raise ValueError(
             "FL MiniMax H3 Beat Pixel Upscale KSampler VAE re-encode changed the "
             "H3 batch, channel, or temporal latent dimensions "
@@ -127,7 +125,7 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
             category="FL/MiniMax H3/Sampling",
             description=(
                 "Samples every MiniMax H3 beat-planned render independently. A planned render "
-                "can contain one prompt section or a shared-context chunk."
+                "can contain one prompt section, a shared-context chunk, or a hidden prior-shot prefix."
             ),
             inputs=[
                 io.Model.Input(
@@ -136,7 +134,7 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                 ),
                 H3ShotPlan.Input(
                     "shot_plan",
-                    tooltip="Render plan from FL MiniMax H3 Beat Shot Planner.",
+                    tooltip="Render plan from the Beat Shot Planner or Shot Motion Context node.",
                 ),
                 io.Int.Input(
                     "seed",
@@ -188,6 +186,20 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     step=0.01,
                     tooltip="Denoise strength applied independently to every planned latent.",
                 ),
+                io.Vae.Input(
+                    "vae",
+                    optional=True,
+                    tooltip=(
+                        "MiniMax H3 video VAE. Required only when the connected Shot Motion "
+                        "Context plan uses visual context, or when live preview is enabled."
+                    ),
+                ),
+                io.Boolean.Input(
+                    "live_preview",
+                    default=False,
+                    optional=True,
+                    tooltip="Decode a lightweight silent preview after each completed render.",
+                ),
             ],
             outputs=[
                 io.Latent.Output(
@@ -199,6 +211,7 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     ),
                 )
             ],
+            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -213,13 +226,61 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
         sampler_name,
         scheduler,
         denoise,
+        vae=None,
+        live_preview=False,
     ):
         shots = _validate_shot_plan(shot_plan)
+        node_id, prompt_id = _execution_ids(cls)
+        if live_preview:
+            send_preview_event(
+                node_id,
+                prompt_id,
+                "sample",
+                "start",
+                total=len(shots),
+            )
+            if vae is None:
+                send_preview_event(
+                    node_id,
+                    prompt_id,
+                    "sample",
+                    "unavailable",
+                    total=len(shots),
+                    error="Connect the MiniMax H3 video VAE to enable live preview.",
+                )
+        uses_motion_context = any(
+            isinstance(shot.get("motion_context"), dict)
+            and (
+                shot["motion_context"].get("video_frames", 0)
+                or shot["motion_context"].get("audio_frames", 0)
+            )
+            for shot in shots
+        )
+        if uses_motion_context:
+            model = motion_context_model(model)
         sampled = []
         progress = comfy.utils.ProgressBar(len(shots))
 
         for position, shot in enumerate(shots):
             shot_seed = seed if seed_mode == "fixed" else (seed + position) & _MAX_SEED
+            if live_preview and vae is not None:
+                send_preview_event(
+                    node_id,
+                    prompt_id,
+                    "sample",
+                    "sampling",
+                    index=position,
+                    total=len(shots),
+                )
+            conditioning = shot["conditioning"]
+            if position:
+                conditioning = apply_previous_shot_context(
+                    conditioning,
+                    sampled[-1],
+                    shots[position - 1],
+                    shot,
+                    vae,
+                )
             logging.info(
                 "FL MiniMax H3 beat sampler: render %d/%d, frames %d-%d, seed %d.",
                 position + 1,
@@ -236,8 +297,8 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     cfg,
                     sampler_name,
                     scheduler,
-                    shot["conditioning"],
-                    shot["conditioning"],
+                    conditioning,
+                    conditioning,
                     shot["latent"],
                     denoise=denoise,
                 )[0]
@@ -258,9 +319,31 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                 "fps": shot_plan["fps"],
                 "seed": shot_seed,
             }
+            if isinstance(shot.get("motion_context"), dict):
+                latent["fl_h3_shot"]["motion_context"] = dict(shot["motion_context"])
             sampled.append(latent)
+            if live_preview and vae is not None:
+                publish_preview(
+                    latent,
+                    vae,
+                    latent["fl_h3_shot"],
+                    node_id,
+                    prompt_id,
+                    "sample",
+                    position,
+                    len(shots),
+                    _SAMPLE_PREVIEW_LONG_SIDE,
+                )
             progress.update(1)
 
+        if live_preview and vae is not None:
+            send_preview_event(
+                node_id,
+                prompt_id,
+                "sample",
+                "done",
+                total=len(shots),
+            )
         return io.NodeOutput(sampled)
 
 
@@ -282,7 +365,10 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 ),
                 H3ShotPlan.Input(
                     "shot_plan",
-                    tooltip="The same shot plan connected to the first beat KSampler.",
+                    tooltip=(
+                        "The exact shot plan connected to the first Beat KSampler, including "
+                        "the output of Shot Motion Context when it is used."
+                    ),
                 ),
                 io.Latent.Input(
                     "latent",
@@ -295,9 +381,9 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 io.Int.Input(
                     "target_long_side",
                     default=896,
-                    min=_H3_PIXEL_MULTIPLE,
+                    min=H3_PIXEL_MULTIPLE,
                     max=nodes.MAX_RESOLUTION,
-                    step=_H3_PIXEL_MULTIPLE,
+                    step=H3_PIXEL_MULTIPLE,
                     tooltip=(
                         "Target pixel size for the longest side. The other side stays "
                         "proportional and both dimensions remain aligned to 32 pixels."
@@ -325,10 +411,24 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 ),
                 io.Int.Input(
                     "steps",
-                    default=20,
+                    default=80,
                     min=1,
                     max=10000,
-                    tooltip="Sampling steps for the H3 refinement pass.",
+                    tooltip="Total steps in the H3 refinement schedule.",
+                ),
+                io.Int.Input(
+                    "start_at_step",
+                    default=60,
+                    min=0,
+                    max=10000,
+                    tooltip="Start the refinement pass at this step in the total schedule.",
+                ),
+                io.Int.Input(
+                    "end_at_step",
+                    default=80,
+                    min=0,
+                    max=10000,
+                    tooltip="End the refinement pass at this step in the total schedule.",
                 ),
                 io.Float.Input(
                     "cfg",
@@ -348,16 +448,11 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                     options=comfy.samplers.KSampler.SCHEDULERS,
                     tooltip="Scheduler used for the refinement pass.",
                 ),
-                io.Float.Input(
-                    "denoise",
-                    default=0.25,
-                    min=0.0,
-                    max=1.0,
-                    step=0.01,
-                    tooltip=(
-                        "Refinement strength. Lower values preserve motion and identity; "
-                        "higher values invent more detail."
-                    ),
+                io.Boolean.Input(
+                    "live_preview",
+                    default=False,
+                    optional=True,
+                    tooltip="Decode a lightweight silent preview after each refined render.",
                 ),
             ],
             outputs=[
@@ -369,6 +464,7 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                     ),
                 )
             ],
+            hidden=[io.Hidden.unique_id],
         )
 
     @classmethod
@@ -383,12 +479,33 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
         seed,
         seed_mode,
         steps,
+        start_at_step,
+        end_at_step,
         cfg,
         sampler_name,
         scheduler,
-        denoise,
+        live_preview=False,
     ):
         shot, metadata = _shot_for_latent(shot_plan, latent)
+        node_id, prompt_id = _execution_ids(cls)
+        total = len(shot_plan["shots"])
+        if live_preview and metadata["index"] == 0:
+            send_preview_event(
+                node_id,
+                prompt_id,
+                "upscale",
+                "start",
+                total=total,
+            )
+        if live_preview:
+            send_preview_event(
+                node_id,
+                prompt_id,
+                "upscale",
+                "sampling",
+                index=metadata["index"],
+                total=total,
+            )
         timeline = shot.get("timeline")
         if not isinstance(timeline, dict):
             raise ValueError(
@@ -403,7 +520,11 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
         )
         conditioning = _apply_timeline(timeline, resized)
         sample_input = resized.copy()
-        sample_input["noise_mask"] = primary_only_noise_mask(resized["samples"])
+        motion_context = metadata.get("motion_context") or {}
+        sample_input["noise_mask"] = primary_only_noise_mask(
+            resized["samples"],
+            motion_context.get("video_steps", 0),
+        )
         shot_seed = (
             seed
             if seed_mode == "fixed"
@@ -429,7 +550,10 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 conditioning,
                 conditioning,
                 sample_input,
-                denoise=denoise,
+                denoise=1.0,
+                start_step=start_at_step,
+                last_step=end_at_step,
+                force_full_denoise=True,
             )[0]
         except Exception as error:
             raise RuntimeError(
@@ -438,4 +562,26 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 f"({source_width}x{source_height} to {target_width}x{target_height})."
             ) from error
         output.pop("noise_mask", None)
+        if live_preview:
+            preview_metadata = dict(metadata)
+            preview_metadata["seed"] = shot_seed
+            publish_preview(
+                output,
+                vae,
+                preview_metadata,
+                node_id,
+                prompt_id,
+                "upscale",
+                metadata["index"],
+                total,
+                _UPSCALE_PREVIEW_LONG_SIDE,
+            )
+            if metadata["index"] == total - 1:
+                send_preview_event(
+                    node_id,
+                    prompt_id,
+                    "upscale",
+                    "done",
+                    total=total,
+                )
         return io.NodeOutput(output)

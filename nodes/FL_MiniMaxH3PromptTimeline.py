@@ -4,17 +4,19 @@ import re
 
 import torch
 
-import comfy.nested_tensor
 import node_helpers
 import nodes
 from comfy_api.latest import io
 from comfy_extras import nodes_minimax_h3 as minimax_h3
+
+from ._latent_helpers import h3_tensors
 
 
 H3Timeline = io.Custom("FL_H3_TIMELINE")
 H3ShotPlan = io.Custom("FL_H3_SHOT_PLAN")
 FLPromptSchedule = io.Custom("FL_PROMPT_SCHEDULE")
 FLPromptEnvelope = io.Custom("FL_PROMPT_ENVELOPE")
+FLPromptEnvelopeSet = io.Custom("FL_PROMPT_ENVELOPE_SET")
 _HEADER = re.compile(r"^\s*\[\s*([0-9:.]+)\s*-\s*([0-9:.]+)\s*\]\s*$")
 _VIDEO_FRAMES_PER_TOKEN = (1, 4, 4, 4, 4)
 _EPS = 1e-6
@@ -330,55 +332,82 @@ def _align_h3_sections(sections, authored_frame_count, frame_count, video_t, tra
     return resolved, adjustments, extended_final_section
 
 
-def _prompt_envelopes(prompt_envelopes):
-    envelopes = []
-    for position, value in enumerate((prompt_envelopes or {}).values(), 1):
-        if not isinstance(value, dict) or value.get("type") != "fl_prompt_envelope":
-            raise TypeError(
-                f"FL MiniMax H3 Prompt Timeline received an invalid prompt envelope at input {position}."
-            )
-        if value.get("version") != 1:
-            raise ValueError("FL MiniMax H3 Prompt Timeline supports FL prompt envelope version 1.")
+def _prompt_envelope(value, position):
+    if not isinstance(value, dict) or value.get("type") != "fl_prompt_envelope":
+        raise TypeError(f"Expected FL_PROMPT_ENVELOPE at position {position}.")
+    if value.get("version") != 1:
+        raise ValueError("FL prompt envelope version 1 is required.")
 
-        prompt = value.get("prompt")
-        weights = value.get("weights")
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError(f"FL prompt envelope {position} prompt is empty.")
-        if not isinstance(weights, list) or not weights:
-            raise ValueError(f"FL prompt envelope {position} weights must be a non-empty list.")
+    prompt = value.get("prompt")
+    weights = value.get("weights")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError(f"FL prompt envelope {position} prompt is empty.")
+    if not isinstance(weights, list) or not weights:
+        raise ValueError(f"FL prompt envelope {position} weights must be a non-empty list.")
 
-        resolved_weights = []
-        for index, weight in enumerate(weights):
-            try:
-                number = float(weight)
-            except (TypeError, ValueError) as error:
-                raise ValueError(
-                    f"FL prompt envelope {position} weight {index} must be a number."
-                ) from error
-            if not math.isfinite(number) or number < 0:
-                raise ValueError(
-                    f"FL prompt envelope {position} weight {index} must be finite and non-negative."
-                )
-            resolved_weights.append(number)
-
+    resolved_weights = []
+    for index, weight in enumerate(weights):
         try:
-            fps = float(value["fps"])
-            duration = float(value["duration"])
-        except (KeyError, TypeError, ValueError) as error:
+            number = float(weight)
+        except (TypeError, ValueError) as error:
             raise ValueError(
-                f"FL prompt envelope {position} has invalid fps or duration."
+                f"FL prompt envelope {position} weight {index} must be a number."
             ) from error
-        if not math.isfinite(fps) or fps <= 0:
-            raise ValueError(f"FL prompt envelope {position} fps must be greater than zero.")
-        if not math.isfinite(duration) or duration <= 0:
-            raise ValueError(f"FL prompt envelope {position} duration must be greater than zero.")
+        if not math.isfinite(number) or number < 0:
+            raise ValueError(
+                f"FL prompt envelope {position} weight {index} must be finite and non-negative."
+            )
+        resolved_weights.append(number)
 
-        envelopes.append({
-            "prompt": prompt.strip(),
-            "weights": resolved_weights,
-            "fps": fps,
-            "duration": duration,
-        })
+    try:
+        fps = float(value["fps"])
+        duration = float(value["duration"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"FL prompt envelope {position} has invalid fps or duration."
+        ) from error
+    if not math.isfinite(fps) or fps <= 0:
+        raise ValueError(f"FL prompt envelope {position} fps must be greater than zero.")
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError(f"FL prompt envelope {position} duration must be greater than zero.")
+
+    return {
+        "prompt": prompt.strip(),
+        "weights": resolved_weights,
+        "fps": fps,
+        "duration": duration,
+    }
+
+
+def _prompt_envelopes(prompt_envelopes):
+    return [
+        _prompt_envelope(value, position)
+        for position, value in enumerate((prompt_envelopes or {}).values(), 1)
+    ]
+
+
+def _prompt_envelope_set(value):
+    if value is None:
+        return []
+    if not isinstance(value, dict) or value.get("type") != "fl_prompt_envelope_set":
+        raise TypeError("FL MiniMax H3 Beat Shot Planner expected FL_PROMPT_ENVELOPE_SET.")
+    if value.get("version") != 1:
+        raise ValueError("FL MiniMax H3 Beat Shot Planner supports prompt envelope set version 1.")
+    items = value.get("envelopes")
+    if not isinstance(items, list) or len(items) > 3:
+        raise ValueError("FL prompt envelope set must contain up to three envelopes.")
+    envelopes = []
+    for position, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"FL prompt envelope set item {position} must be an object.")
+        envelopes.append(_prompt_envelope({
+            "type": "fl_prompt_envelope",
+            "version": 1,
+            "prompt": item.get("prompt"),
+            "weights": item.get("weights"),
+            "fps": item.get("fps", value.get("fps")),
+            "duration": item.get("duration", value.get("duration")),
+        }, position))
     return envelopes
 
 
@@ -409,7 +438,7 @@ def _semantic_prompt(global_prompt, sections, prompt_envelopes=None):
 
 
 def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_size,
-                        ref_images, ref_videos, ref_video_audios, ref_audios):
+                        ref_images, ref_videos, ref_video_audios, ref_audios, cache=None):
     ref_items = []
     ref_blocks = []
 
@@ -429,15 +458,24 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
             minimax_h3.CANVAS_MULTIPLE,
             round(image_height * scale / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
         )
-        resized = minimax_h3._resize(image[:1], target_width, target_height, "disabled")
-        latent = vae.encode(resized)
-        ref_items.append({"type": "image", "data": resized})
-        ref_blocks.append({
-            "kind": "image",
-            "latent_h": target_height // 16,
-            "latent_w": target_width // 16,
-            "latent": latent,
-        })
+        key = ("image", id(image), target_width, target_height)
+        prepared = cache.get(key) if cache is not None else None
+        if prepared is None:
+            resized = minimax_h3._resize(image[:1], target_width, target_height, "disabled")
+            latent = vae.encode(resized)
+            prepared = (
+                {"type": "image", "data": resized},
+                {
+                    "kind": "image",
+                    "latent_h": target_height // 16,
+                    "latent_w": target_width // 16,
+                    "latent": latent,
+                },
+            )
+            if cache is not None:
+                cache[key] = prepared
+        ref_items.append(prepared[0])
+        ref_blocks.append(prepared[1])
 
     ref_video_audios = ref_video_audios or {}
     for name, video_frames in (ref_videos or {}).items():
@@ -455,59 +493,94 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
                 minimax_h3.CANVAS_MULTIPLE,
                 round(video_height / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
             )
-        frames = minimax_h3._resize(video_frames, canvas_width, canvas_height, "disabled")
-        if frames.shape[0] > frame_count:
-            frames = frames[:frame_count]
-        count = frames.shape[0]
+        count = min(video_frames.shape[0], frame_count)
         if count < 5:
             raise ValueError("MiniMax H3 reference videos need at least 5 frames (~0.2s at 24 fps).")
         while count % 17 != 5:
             count -= 1
-        frames = frames[:count]
-        latent = vae.encode(frames)
-
-        audio_latent, audio_length = None, 0
-        if soundtrack is not None:
-            audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
-                audio_vae, soundtrack
+        key = (
+            "video",
+            id(video_frames),
+            count,
+            canvas_width,
+            canvas_height,
+            id(soundtrack) if soundtrack is not None else None,
+        )
+        prepared = cache.get(key) if cache is not None else None
+        if prepared is None:
+            frames = minimax_h3._resize(
+                video_frames[:count], canvas_width, canvas_height, "disabled"
             )
-            ref_items.append({"type": "audio"})
-
-        sample_indices = list(range(0, frames.shape[0], minimax_h3.FPS // 2))
-        ref_items.append({
-            "type": "video",
-            "data": frames[sample_indices],
-            "timestamps": [index / 2.0 for index in range(len(sample_indices))],
-        })
-        ref_blocks.append({
-            "kind": "video_audio" if audio_length else "video",
-            "latent_t": latent.shape[2],
-            "latent_h": canvas_height // 16,
-            "latent_w": canvas_width // 16,
-            "ref_audio_t": audio_length,
-            "latent": latent,
-            "audio_latent": audio_latent,
-        })
+            latent = vae.encode(frames)
+            audio_latent, audio_length = None, 0
+            items = []
+            if soundtrack is not None:
+                audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
+                    audio_vae, soundtrack
+                )
+                items.append({"type": "audio"})
+            sample_indices = list(range(0, frames.shape[0], minimax_h3.FPS // 2))
+            items.append({
+                "type": "video",
+                "data": frames[sample_indices],
+                "timestamps": [index / 2.0 for index in range(len(sample_indices))],
+            })
+            prepared = (
+                items,
+                {
+                    "kind": "video_audio" if audio_length else "video",
+                    "latent_t": latent.shape[2],
+                    "latent_h": canvas_height // 16,
+                    "latent_w": canvas_width // 16,
+                    "ref_audio_t": audio_length,
+                    "latent": latent,
+                    "audio_latent": audio_latent,
+                },
+            )
+            if cache is not None:
+                cache[key] = prepared
+        ref_items.extend(prepared[0])
+        ref_blocks.append(prepared[1])
 
     for audio in (ref_audios or {}).values():
         if audio is None:
             continue
-        audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
-            audio_vae, audio
-        )
-        ref_items.append({"type": "audio"})
-        ref_blocks.append({
-            "kind": "audio",
-            "ref_audio_t": audio_length,
-            "audio_latent": audio_latent,
-        })
+        key = ("audio", id(audio))
+        prepared = cache.get(key) if cache is not None else None
+        if prepared is None:
+            audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
+                audio_vae, audio
+            )
+            prepared = (
+                {"type": "audio"},
+                {
+                    "kind": "audio",
+                    "ref_audio_t": audio_length,
+                    "audio_latent": audio_latent,
+                },
+            )
+            if cache is not None:
+                cache[key] = prepared
+        ref_items.append(prepared[0])
+        ref_blocks.append(prepared[1])
 
     return ref_items, ref_blocks
 
 
-def _encode_prompt(clip, prompt, ref_items, ref_blocks):
-    tokens = clip.tokenize(prompt, minimax_ref_items=ref_items)
-    conditioning = clip.encode_from_tokens_scheduled(tokens)
+def _encode_prompt(clip, prompt, ref_items, ref_blocks, cache=None):
+    key = (
+        prompt,
+        tuple(
+            (item["type"], id(item.get("data")))
+            for item in ref_items
+        ),
+    )
+    conditioning = cache.get(key) if cache is not None else None
+    if conditioning is None:
+        tokens = clip.tokenize(prompt, minimax_ref_items=ref_items)
+        conditioning = clip.encode_from_tokens_scheduled(tokens)
+        if cache is not None:
+            cache[key] = conditioning
     if ref_blocks:
         conditioning = node_helpers.conditioning_set_values(
             conditioning, {"minimax_refs": ref_blocks}
@@ -648,7 +721,7 @@ def _envelope_temporal_weights(envelope, video_t, audio_t, affect_audio):
     return video_weights, audio_weights
 
 
-def _conditioning_groups(clip, global_prompt, sections, ref_items, ref_blocks):
+def _conditioning_groups(clip, global_prompt, sections, ref_items, ref_blocks, cache=None):
     groups = {}
     for index, section in enumerate(sections):
         prompt = _combine_prompt(global_prompt, section["prompt"])
@@ -657,14 +730,14 @@ def _conditioning_groups(clip, global_prompt, sections, ref_items, ref_blocks):
             group = {
                 "prompt": prompt,
                 "section_indices": [],
-                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks),
+                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks, cache),
             }
             groups[prompt] = group
         group["section_indices"].append(index)
     return list(groups.values())
 
 
-def _prompt_envelope_groups(clip, global_prompt, prompt_envelopes, ref_items, ref_blocks):
+def _prompt_envelope_groups(clip, global_prompt, prompt_envelopes, ref_items, ref_blocks, cache=None):
     groups = {}
     for index, envelope in enumerate(prompt_envelopes):
         prompt = _combine_prompt(global_prompt, envelope["prompt"])
@@ -673,7 +746,7 @@ def _prompt_envelope_groups(clip, global_prompt, prompt_envelopes, ref_items, re
             group = {
                 "prompt": prompt,
                 "envelope_indices": [],
-                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks),
+                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks, cache),
             }
             groups[prompt] = group
         group["envelope_indices"].append(index)
@@ -699,18 +772,7 @@ def _merge_section_weights(weights, indices):
 
 
 def _h3_tensors(latent):
-    samples = latent.get("samples")
-    if not isinstance(samples, comfy.nested_tensor.NestedTensor):
-        raise TypeError("FL MiniMax H3 timeline expects a nested H3 video/audio latent.")
-    tensors = samples.unbind()
-    if len(tensors) != 2:
-        raise ValueError("FL MiniMax H3 timeline expects exactly one video and one audio latent.")
-    video, audio = tensors
-    if video.ndim != 5 or video.shape[0] != 1 or video.shape[1] != 24:
-        raise ValueError("FL MiniMax H3 timeline expects video latent shape [1, 24, T, H, W].")
-    if audio.ndim != 4 or audio.shape[0] != 1 or audio.shape[1] != 32 or audio.shape[2] != 2:
-        raise ValueError("FL MiniMax H3 timeline expects audio latent shape [1, 32, 2, T40].")
-    return video, audio
+    return h3_tensors(latent, "FL MiniMax H3 timeline")
 
 
 def _flatten_mask(video_shape, audio_shape, video_weights, audio_weights):
@@ -753,8 +815,8 @@ def _apply_timeline(timeline, latent):
         for group in timeline["conditioning_groups"]:
             group_video = _merge_section_weights(video_weights, group["section_indices"])
             group_audio = _merge_section_weights(audio_weights, group["section_indices"])
-            mask = _flatten_mask(video.shape, audio.shape, group_video, group_audio)
-            if torch.count_nonzero(mask):
+            if any(group_video) or any(group_audio):
+                mask = _flatten_mask(video.shape, audio.shape, group_video, group_audio)
                 conditioning.extend(
                     node_helpers.conditioning_set_values(
                         group["conditioning"], {"mask": mask}
@@ -782,8 +844,8 @@ def _apply_timeline(timeline, latent):
                 envelope_audio_weights,
                 group["envelope_indices"],
             )
-            mask = _flatten_mask(video.shape, audio.shape, group_video, group_audio)
-            if torch.count_nonzero(mask):
+            if any(group_video) or any(group_audio):
+                mask = _flatten_mask(video.shape, audio.shape, group_video, group_audio)
                 conditioning.extend(
                     node_helpers.conditioning_set_values(
                         group["conditioning"], {"mask": mask}
@@ -1432,15 +1494,12 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                     default="match",
                     tooltip="Reference image sizing, matching the standard MiniMax H3 reference node.",
                 ),
-                io.Autogrow.Input(
+                FLPromptEnvelopeSet.Input(
                     "prompt_envelopes",
                     optional=True,
-                    tooltip="Audio-reactive prompt envelopes, sliced and rebased for every planned render.",
-                    template=io.Autogrow.TemplatePrefix(
-                        input=FLPromptEnvelope.Input("prompt_envelope"),
-                        prefix="prompt_envelope_",
-                        min=0,
-                        max=10,
+                    tooltip=(
+                        "Sequence-wide reactive prompt envelope set from FL Audio Beat Prompt Sequencer, "
+                        "sliced and rebased for every planned render."
                     ),
                 ),
                 io.Autogrow.Input(
@@ -1517,9 +1576,11 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
     ):
         sections, total_frames = _beat_shot_sections(prompt_schedule)
         section_groups = _render_section_groups(sections)
-        envelopes = _prompt_envelopes(prompt_envelopes)
+        envelopes = _prompt_envelope_set(prompt_envelopes)
         shots = []
         total_render_frames = 0
+        reference_cache = {}
+        conditioning_cache = {}
 
         for index, section_group in enumerate(section_groups):
             start_frame = section_group[0]["start_frame"]
@@ -1532,8 +1593,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
             )
             video, audio = _h3_tensors(latent)
             local_audio = _shot_audio(timeline_audio, start_frame, end_frame)
-            shot_ref_audios = {"timeline_audio": local_audio}
-            shot_ref_audios.update(ref_audios or {})
             ref_items, ref_blocks = _prepare_references(
                 vae,
                 audio_vae,
@@ -1544,8 +1603,38 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_images,
                 ref_videos,
                 ref_video_audios,
-                shot_ref_audios,
+                None,
+                reference_cache,
             )
+            local_ref_items, local_ref_blocks = _prepare_references(
+                vae,
+                audio_vae,
+                width,
+                height,
+                render_frames,
+                ref_image_size,
+                None,
+                None,
+                None,
+                {"timeline_audio": local_audio},
+            )
+            ref_items.extend(local_ref_items)
+            ref_blocks.extend(local_ref_blocks)
+            extra_ref_items, extra_ref_blocks = _prepare_references(
+                vae,
+                audio_vae,
+                width,
+                height,
+                render_frames,
+                ref_image_size,
+                None,
+                None,
+                None,
+                ref_audios,
+                reference_cache,
+            )
+            ref_items.extend(extra_ref_items)
+            ref_blocks.extend(extra_ref_blocks)
 
             local_sections = []
             for section in section_group:
@@ -1580,6 +1669,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 global_prompt.strip(),
                 ref_items,
                 ref_blocks,
+                conditioning_cache,
             )
             conditioning_groups = _conditioning_groups(
                 clip,
@@ -1587,6 +1677,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 local_sections,
                 ref_items,
                 ref_blocks,
+                conditioning_cache,
             )
             prompt_envelope_groups = _prompt_envelope_groups(
                 clip,
@@ -1594,6 +1685,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 shot_envelopes,
                 ref_items,
                 ref_blocks,
+                conditioning_cache,
             )
             timeline = {
                 "type": "minimax_h3_prompt_timeline",

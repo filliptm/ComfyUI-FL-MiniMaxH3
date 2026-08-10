@@ -20,14 +20,16 @@ EXPECTED_NODES = {
     "FL_MiniMaxH3PromptTimeline",
     "FL_MiniMaxH3ApplyTimeline",
     "FL_MiniMaxH3BeatShotPlanner",
+    "FL_MiniMaxH3ShotMotionContext",
     "FL_MiniMaxH3BeatKSampler",
     "FL_MiniMaxH3BeatUpscaleKSampler",
+    "FL_MiniMaxH3LatentUpscale",
     "FL_MiniMaxH3ShotAssembler",
 }
 
 
 class RegistrationTests(unittest.TestCase):
-    def test_pack_registers_only_the_six_minimax_nodes(self):
+    def test_pack_registers_only_the_eight_minimax_nodes(self):
         self.assertEqual(set(package.NODE_CLASS_MAPPINGS), EXPECTED_NODES)
         self.assertEqual(set(package.NODE_DISPLAY_NAME_MAPPINGS), EXPECTED_NODES)
 
@@ -36,6 +38,10 @@ class RegistrationTests(unittest.TestCase):
             schema = node_class.define_schema()
             self.assertEqual(schema.node_id, node_id)
             self.assertTrue(schema.category.startswith("FL/MiniMax H3/"))
+
+    def test_pack_serves_the_sampler_preview_extension(self):
+        self.assertEqual(package.WEB_DIRECTORY, "./web")
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3BeatSamplerPreview.js").is_file())
 
 
 if __name__ == "__main__":

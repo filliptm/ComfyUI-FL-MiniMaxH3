@@ -1,6 +1,6 @@
 # FL MiniMax H3
 
-MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, beat-aligned render planning, grouped and independent shot sampling, pixel-space latent refinement, and final shot assembly while preserving MiniMax H3's native nested video/audio latent format.
+MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, beat-aligned render planning, optional cross-shot motion context, grouped and independent shot sampling, native latent upscaling, pixel-space refinement, and final shot assembly while preserving MiniMax H3's nested video/audio latent format.
 
 [![MiniMax H3](https://img.shields.io/badge/MiniMax-H3-7c3aed?style=for-the-badge)](https://github.com/Comfy-Org/ComfyUI)
 [![Patreon](https://img.shields.io/badge/Patreon-Support%20Me-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/Machinedelusions)
@@ -10,8 +10,11 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 - **Strict prompt timelines** - Schedule prompt conditioning over H3 video tokens in seconds, frames, or beats
 - **Reference-aware conditioning** - Use H3 reference images, videos, video audio, and standalone audio
 - **Beat shot planning** - Turn an `FL_PROMPT_SCHEDULE` into independently renderable or explicitly grouped shots
+- **Hard-cut motion context** - Condition each render on a configurable authored tail from the previous render without showing overlap frames
 - **Nested latent sampling** - Sample MiniMax H3 video and audio latents without flattening their native structure
-- **Pixel-space refinement** - Decode, resize, re-encode, and run a controlled low-denoise detail pass
+- **Native latent upscaling** - Resize only video latent height and width without a VAE round trip
+- **Unified sampler previews** - Watch sampling progress and completed base or upscale renders in one embedded player
+- **Pixel-space refinement** - Decode, resize, re-encode, and refine through an explicit sampling-step window
 - **Shot assembly** - Decode and concatenate planned renders in timeline order
 - **Workflow compatibility** - Keeps the original Fill Nodes node IDs, sockets, custom types, and metadata
 
@@ -22,8 +25,10 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 | **FL MiniMax H3 Prompt Timeline** | Builds native H3 video/audio latents and strict temporal conditioning from a manual or connected prompt schedule |
 | **FL MiniMax H3 Apply Timeline** | Rebuilds the strict temporal conditioning after an H3 latent has been spatially resized |
 | **FL MiniMax H3 Beat Shot Planner** | Converts a beat prompt schedule into grouped or independent H3 render plans with matching audio slices |
+| **FL MiniMax H3 Shot Motion Context** | Adds adjustable previous-render video/audio context and per-render overrides while preserving hard cuts |
 | **FL MiniMax H3 Beat KSampler** | Samples every planned H3 render and returns editable nested latents |
-| **FL MiniMax H3 Beat Pixel Upscale KSampler** | Decodes each render to pixels, resizes proportionally, re-encodes, and refines at configurable denoise |
+| **FL MiniMax H3 Latent Upscale** | Spatially upscales the H3 video latent while preserving time, audio, and shot metadata |
+| **FL MiniMax H3 Beat Pixel Upscale KSampler** | Decodes each render to pixels, resizes proportionally, re-encodes, and refines over a configurable sampling-step window |
 | **FL MiniMax H3 Shot Assembler** | Decodes and concatenates completed render latents into one image sequence |
 
 ## Installation
@@ -87,7 +92,9 @@ The recommended audio-reactive path uses **FL Audio Beat Prompt Schedule** from 
 
 ```text
 FL Audio Beat Prompt Schedule
+    -> prompt_schedule, audio, prompt_envelopes
     -> FL MiniMax H3 Beat Shot Planner
+    -> optional FL MiniMax H3 Shot Motion Context
     -> FL MiniMax H3 Beat KSampler
     -> optional FL MiniMax H3 Beat Pixel Upscale KSampler
     -> FL MiniMax H3 Shot Assembler
@@ -95,7 +102,7 @@ FL Audio Beat Prompt Schedule
 
 Fill Nodes is recommended for this beat-sequenced path but is not required for the manual Prompt Timeline workflow.
 
-The scheduler owns waveform analysis, beat-grid editing, audio trimming, prompt blocks, crossfades, and render groups. The H3 planner consumes its `FL_PROMPT_SCHEDULE` output without importing or duplicating the audio implementation.
+The scheduler owns waveform analysis, beat-grid editing, audio trimming, prompt blocks, crossfades, render groups, and up to three live reactive-prompt envelopes. The H3 planner consumes `FL_PROMPT_SCHEDULE`, the aligned audio crop, and one `FL_PROMPT_ENVELOPE_SET` without importing or duplicating the audio implementation. It slices and rebases every reactive prompt for each planned shot.
 
 ## Render groups
 
@@ -108,6 +115,20 @@ The scheduler can mark touching prompt sections as one render group:
 
 This provides explicit control over which cuts share generative context without forcing the entire music video into one long render.
 
+## Hard-cut motion context
+
+Place **FL MiniMax H3 Shot Motion Context** between the Beat Shot Planner and every beat sampler. Also connect the video VAE to the Beat KSampler's optional `vae` input when video context is nonzero.
+
+- `video_context_frames` accepts H3-native context windows `0`, `1`, `5`, `22`, or `39`.
+- `audio_context_frames` accepts `0` through `240` frames on the 24 fps video timeline.
+- `per_render_overrides` uses 1-based destination renders, for example `3: 22, 39`.
+- The first render has no previous context. A requested context cannot exceed the previous render's authored length.
+- Context is generated as a hidden prefix, protected during pixel-upscale refinement, and removed by the Shot Assembler. The visible transition remains a hard cut.
+
+The Beat KSampler installs a marker-scoped H3 hook through ComfyUI's model patcher on a cloned model; it does not modify ComfyUI files or the connected model. Workflows without this node take the original H3 path. The hook prepares the payload before diffusion-model wrappers, so it can run with Spectrum H3 enabled.
+
+Larger video context can substantially increase the destination render length on H3's temporal grid. Start with 5 video frames and 22 audio frames. The example workflow is wired with those defaults. Its final video still uses the scheduler's original audio track; audio context guides joint generation but does not replace that muxed track.
+
 ## Prompt Timeline outputs
 
 - `scheduled` - strict temporal conditioning for the initial sampling pass
@@ -117,6 +138,22 @@ This provides explicit control over which cuts share generative context without 
 
 Use **Apply Timeline** when a spatial resize or VAE round trip changes the video latent width and height but preserves its temporal dimensions.
 
+## Native latent upscale
+
+**FL MiniMax H3 Latent Upscale** interpolates the video stream directly in latent space. It preserves video duration, the original audio tensor, shot boundaries, motion-context metadata, and other latent dictionary fields. The target long side and proportional short side remain aligned to 32-pixel H3 canvases.
+
+The node does not create detail by itself. Decode its output for a fast final enlargement, or rebuild conditioning with **Apply Timeline** before a low-denoise refinement pass. A 2x spatial upscale creates roughly 4x as many video tokens for downstream sampling.
+
+```text
+Base KSampler
+    -> FL MiniMax H3 Latent Upscale
+    -> FL MiniMax H3 Apply Timeline
+    -> low-denoise KSampler
+    -> decode
+```
+
+Use `bislerp` as the general latent interpolation method. The existing Beat Pixel Upscale KSampler remains the VAE round-trip refinement path.
+
 ## Pixel upscale refinement
 
 **FL MiniMax H3 Beat Pixel Upscale KSampler** performs this sequence for each planned render:
@@ -125,9 +162,17 @@ Use **Apply Timeline** when a spatial resize or VAE round trip changes the video
 2. Resize pixels proportionally to the requested long side.
 3. Re-encode the resized frames into H3 latent space.
 4. Reapply the render's prompt timeline at the new spatial dimensions.
-5. Sample with the configured low denoise.
+5. Sample from `start_at_step` through `end_at_step` within the configured total `steps` schedule.
 
 The output remains a native nested H3 latent so it can continue through other latent-aware ComfyUI nodes before decoding.
+
+## Live chunk previews
+
+The Beat KSampler and Beat Pixel Upscale KSampler use one embedded preview player for the full render lifecycle. The player shows ComfyUI's live latent preview while a chunk is sampling, then replaces it with that chunk's completed MP4 when **live** is enabled. Native and Video Helper Suite preview widgets are hidden only on these two FL samplers so the same preview is not repeated below the player.
+
+Sampling previews follow ComfyUI's existing preview settings and add no extra model work. Completed MP4 generation is off by default and does not change sampler settings, latent outputs, shot metadata, or final audio. Enabling **live** adds one extra video-VAE decode and preview encode per completed render. Preview errors are shown in the dashboard without failing the latent render. A cached sampler does not regenerate completed previews.
+
+The first Beat KSampler finishes its complete latent list before downstream nodes can start because ComfyUI list outputs are not streamed between nodes. Once the pixel-upscale sampler begins processing that list, its completed renders appear incrementally as well.
 
 ## Key parameters
 
@@ -135,13 +180,14 @@ The output remains a native nested H3 latent so it can continue through other la
 - **affect_audio** - Apply scheduled text masks to video only or to video and audio tokens
 - **schedule_policy** - Reject, clamp, or fit schedule ranges that exceed the aligned H3 duration
 - **ref_image_size** - Match the output canvas or allow H3's maximum reference area
-- **target_long_side** - Pixel long side used by the upscale refinement pass; must be divisible by 32
-- **denoise** - Refinement strength after the pixel resize and VAE round trip
+- **target_long_side** - Pixel long side used by either upscale path; must be divisible by 32
+- **video_context_frames / audio_context_frames** - Previous authored material used to guide each next hard-cut render
+- **steps / start_at_step / end_at_step** - Total refinement schedule and the explicit portion sampled after the pixel resize and VAE round trip
 - **seed_stride** - Deterministic seed offset between planned renders
 
 ## Migration from Fill Nodes
 
-These nodes were originally distributed inside `ComfyUI_Fill-Nodes`. Existing workflows do not need node replacement because the node IDs and data contracts are unchanged.
+These nodes were originally distributed inside `ComfyUI_Fill-Nodes`. Existing workflows do not need node replacement because the node IDs are unchanged. When a workflow saved before version 1.2.0 is loaded, the Beat Pixel Upscale KSampler converts its former `steps` and `denoise` values to the equivalent total, start, and end step window.
 
 To avoid duplicate registrations:
 
@@ -149,7 +195,7 @@ To avoid duplicate registrations:
 2. Install this pack.
 3. Restart ComfyUI.
 
-Do not combine this pack with an older Fill Nodes release that still registers the same six MiniMax node IDs.
+Do not combine this pack with an older Fill Nodes release that still registers the migrated MiniMax node IDs.
 
 ## Requirements
 

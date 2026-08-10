@@ -1,6 +1,8 @@
 import copy
 import importlib.util
 import pathlib
+import sys
+import types
 import unittest
 
 import torch
@@ -8,14 +10,28 @@ import torch
 import comfy.nested_tensor
 
 
-MODULE_PATH = (
-    pathlib.Path(__file__).parents[1]
-    / "nodes"
-    / "FL_MiniMaxH3PromptTimeline.py"
-)
-SPEC = importlib.util.spec_from_file_location("fl_minimax_h3_prompt_timeline", MODULE_PATH)
-timeline = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(timeline)
+ROOT = pathlib.Path(__file__).parents[1]
+
+
+def load_module(relative_path):
+    path = pathlib.Path(relative_path)
+    module_name = "fl_minimax_h3_prompt_timeline_tests." + ".".join(path.with_suffix("").parts)
+    parts = module_name.split(".")
+    for index in range(1, len(parts)):
+        package_name = ".".join(parts[:index])
+        if package_name in sys.modules:
+            continue
+        package = types.ModuleType(package_name)
+        package.__path__ = [str(ROOT.joinpath(*path.parts[:max(0, index - 1)]))]
+        sys.modules[package_name] = package
+    spec = importlib.util.spec_from_file_location(module_name, ROOT / relative_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+timeline = load_module("nodes/FL_MiniMaxH3PromptTimeline.py")
 
 
 def conditioning(value):

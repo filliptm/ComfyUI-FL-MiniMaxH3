@@ -1,7 +1,7 @@
 [project]
 name = "ComfyUI-FL-MiniMaxH3"
-description = "MiniMax H3 prompt timelines, beat-planned sampling, pixel-space latent refinement, and shot assembly for ComfyUI"
-version = "1.0.0"
+description = "MiniMax H3 prompt timelines, beat-planned sampling, native latent upscaling, pixel-space refinement, and shot assembly for ComfyUI"
+version = "1.2.1"
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
 dependencies = []

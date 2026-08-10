@@ -75,15 +75,23 @@ def schedule(boundaries=(0, 54, 109, 163, 217), render_groups=None):
 
 
 class FakeClip:
+    def __init__(self):
+        self.encoded_prompts = []
+
     def tokenize(self, prompt, **kwargs):
         return {"prompt": prompt, **kwargs}
 
     def encode_from_tokens_scheduled(self, tokens):
+        self.encoded_prompts.append(tokens["prompt"])
         return [[torch.zeros((1, 1, 1)), {"prompt": tokens["prompt"]}]]
 
 
 class FakeVideoVAE:
+    def __init__(self):
+        self.encoded_images = []
+
     def encode(self, images):
+        self.encoded_images.append(images)
         return torch.zeros((1, 24, 2, 2, 2))
 
 
@@ -109,6 +117,46 @@ class ShotPlannerTests(unittest.TestCase):
         self.assertNotIn("render_mode", inputs)
         self.assertNotIn("sections_per_chunk", inputs)
         self.assertNotIn("individual_start_section", inputs)
+        self.assertIn("prompt_envelopes", inputs)
+
+    def test_prompt_envelope_set_is_sliced_for_each_shot(self):
+        audio = {
+            "waveform": torch.zeros((1, 2, 217000)),
+            "sample_rate": 24000,
+        }
+        prompt_envelopes = {
+            "type": "fl_prompt_envelope_set",
+            "version": 1,
+            "fps": 24.0,
+            "duration": 217 / 24,
+            "envelopes": [{
+                "slot": 1,
+                "source": "beat_grid",
+                "prompt": "Pulse outward.",
+                "weights": [float(index % 2) for index in range(217)],
+            }],
+        }
+
+        plan = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=FakeClip(),
+            vae=FakeVideoVAE(),
+            audio_vae=FakeAudioVAE(),
+            prompt_schedule=schedule(),
+            timeline_audio=audio,
+            global_prompt="Same character.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+            prompt_envelopes=prompt_envelopes,
+        ).result[0]
+
+        self.assertEqual(len(plan["shots"]), 4)
+        for shot in plan["shots"]:
+            envelopes = shot["timeline"]["prompt_envelopes"]
+            self.assertEqual(len(envelopes), 1)
+            self.assertEqual(envelopes[0]["prompt"], "Pulse outward.")
+            self.assertEqual(len(envelopes[0]["weights"]), shot["render_frames"])
 
     def test_current_timeline_becomes_four_independent_h3_shots(self):
         audio_vae = FakeAudioVAE()
@@ -148,6 +196,48 @@ class ShotPlannerTests(unittest.TestCase):
             )
             self.assertEqual(len(shot["latent"]["samples"].unbind()), 2)
             self.assertEqual(shot["timeline"]["type"], "minimax_h3_prompt_timeline")
+
+    def test_reuses_static_references_and_repeated_conditioning(self):
+        value = schedule()
+        for section in value["sections"]:
+            section["prompt"] = "Repeated action."
+        clip = FakeClip()
+        vae = FakeVideoVAE()
+        audio_vae = FakeAudioVAE()
+        timeline_audio = {
+            "waveform": torch.zeros((1, 2, 217000)),
+            "sample_rate": 24000,
+        }
+        reference_audio = {
+            "waveform": torch.zeros((1, 2, 24000)),
+            "sample_rate": 24000,
+        }
+
+        plan = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=clip,
+            vae=vae,
+            audio_vae=audio_vae,
+            prompt_schedule=value,
+            timeline_audio=timeline_audio,
+            global_prompt="Same character.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+            ref_images={"ref_image_1": torch.zeros((1, 64, 64, 3))},
+            ref_audios={"ref_audio_1": reference_audio},
+        ).result[0]
+
+        self.assertEqual(len(vae.encoded_images), 1)
+        self.assertEqual(audio_vae.encoded_samples, [54000, 24000, 55000, 54000, 54000])
+        self.assertEqual(
+            clip.encoded_prompts,
+            ["Same character.", "Same character.\n\nRepeated action."],
+        )
+        refs = [shot["timeline"]["global_conditioning"][0][1]["minimax_refs"] for shot in plan["shots"]]
+        self.assertTrue(all(items[0] is refs[0][0] for items in refs))
+        self.assertTrue(all(items[2] is refs[0][2] for items in refs))
+        self.assertEqual(len({id(items[1]) for items in refs}), 4)
 
     def test_timeline_groups_build_arbitrary_shared_context_render_units(self):
         audio_vae = FakeAudioVAE()
@@ -435,6 +525,10 @@ class BeatUpscaleKSamplerTests(unittest.TestCase):
         self.assertEqual(schema.inputs[2].io_type, "LATENT")
         self.assertEqual(schema.inputs[3].io_type, "VAE")
         self.assertEqual(schema.inputs[4].io_type, "INT")
+        self.assertEqual(schema.inputs[8].id, "steps")
+        self.assertEqual(schema.inputs[9].id, "start_at_step")
+        self.assertEqual(schema.inputs[10].id, "end_at_step")
+        self.assertNotIn("denoise", [value.id for value in schema.inputs])
         self.assertEqual(schema.outputs[0].io_type, "LATENT")
         self.assertFalse(schema.outputs[0].is_output_list)
 
@@ -449,6 +543,38 @@ class BeatUpscaleKSamplerTests(unittest.TestCase):
     def test_target_long_side_requires_h3_pixel_alignment(self):
         with self.assertRaisesRegex(ValueError, "divisible by 32"):
             sampler._target_canvas(288, 512, 900)
+
+    def test_rejects_the_pre_context_plan_before_decoding(self):
+        value = upscale_latent()
+        value["fl_h3_shot"]["motion_context"] = {
+            "version": 1,
+            "source_index": None,
+            "video_frames": 0,
+            "video_steps": 0,
+            "audio_frames": 0,
+            "trim_frames": 0,
+        }
+        vae = FakePixelVAE()
+
+        with self.assertRaisesRegex(ValueError, "connect its output to both samplers"):
+            sampler.FL_MiniMaxH3BeatUpscaleKSampler.execute(
+                model=object(),
+                shot_plan=upscale_plan(),
+                latent=value,
+                vae=vae,
+                target_long_side=896,
+                upscale_method="bicubic",
+                seed=100,
+                seed_mode="increment",
+                steps=16,
+                start_at_step=12,
+                end_at_step=16,
+                cfg=1.0,
+                sampler_name="euler",
+                scheduler="normal",
+            )
+
+        self.assertIsNone(vae.decode_input)
 
     def test_pixel_round_trip_changes_only_video_spatial_dimensions(self):
         value = upscale_latent()
@@ -496,10 +622,11 @@ class BeatUpscaleKSamplerTests(unittest.TestCase):
                 seed=100,
                 seed_mode="increment",
                 steps=16,
+                start_at_step=12,
+                end_at_step=16,
                 cfg=1.0,
                 sampler_name="euler",
                 scheduler="normal",
-                denoise=0.25,
             ).result[0]
 
         resized = apply.call_args.args[1]
@@ -510,7 +637,10 @@ class BeatUpscaleKSamplerTests(unittest.TestCase):
         self.assertEqual(args[1], 100)
         self.assertEqual(args[6], "target-conditioning")
         self.assertEqual(args[7], "target-conditioning")
-        self.assertEqual(kwargs["denoise"], 0.25)
+        self.assertEqual(kwargs["denoise"], 1.0)
+        self.assertEqual(kwargs["start_step"], 12)
+        self.assertEqual(kwargs["last_step"], 16)
+        self.assertTrue(kwargs["force_full_denoise"])
         video_mask, audio_mask = args[8]["noise_mask"].unbind()
         self.assertTrue(torch.all(video_mask == 1))
         self.assertTrue(torch.all(audio_mask == 0))

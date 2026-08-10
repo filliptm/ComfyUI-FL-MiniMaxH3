@@ -46,8 +46,8 @@ class FL_MiniMaxH3ShotAssembler(io.ComfyNode):
             display_name="FL MiniMax H3 Shot Assembler",
             category="FL/MiniMax H3/Output",
             description=(
-                "Decodes planned MiniMax H3 renders separately, removes each render's H3 padding, "
-                "and assembles the authored frames in pixel space."
+                "Decodes planned MiniMax H3 renders separately, removes hidden motion context and "
+                "H3 padding, and assembles the authored frames in pixel space."
             ),
             inputs=[
                 io.Latent.Input(
@@ -110,11 +110,17 @@ class FL_MiniMaxH3ShotAssembler(io.ComfyNode):
                     images.shape[-2],
                     images.shape[-1],
                 )
-            if images.ndim != 4 or images.shape[0] < authored_frames:
+            motion_context = shot.get("motion_context") or {}
+            trim_frames = motion_context.get("trim_frames", 0)
+            if not isinstance(trim_frames, int) or trim_frames < 0:
+                raise ValueError(
+                    f"FL MiniMax H3 Shot Assembler render {position} has an invalid context trim."
+                )
+            if images.ndim != 4 or images.shape[0] < trim_frames + authored_frames:
                 raise ValueError(
                     f"FL MiniMax H3 Shot Assembler decoded too few frames for render {position}."
                 )
-            images = images[:authored_frames]
+            images = images[trim_frames:trim_frames + authored_frames]
             if output is None:
                 output = torch.empty(
                     (total_frames, *images.shape[1:]),
