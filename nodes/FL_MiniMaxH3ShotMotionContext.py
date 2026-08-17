@@ -31,6 +31,11 @@ def _validate_plan(plan):
         raise TypeError("FL MiniMax H3 Shot Motion Context received an invalid shot plan.")
     if plan.get("version") != 1:
         raise ValueError("FL MiniMax H3 Shot Motion Context supports shot plan version 1.")
+    if plan.get("mode") == "temporal_reshot":
+        raise ValueError(
+            "FL MiniMax H3 Shot Motion Context is not used for temporal reshots; "
+            "their surrounding source frames already provide motion context."
+        )
     shots = plan.get("shots")
     if not isinstance(shots, list) or not shots:
         raise ValueError("FL MiniMax H3 Shot Motion Context requires at least one planned render.")
@@ -170,14 +175,25 @@ def _extend_shot(shot, width, height, video_frames):
             render_frames,
         ),
     }
-    return {
+    if "reference_free_conditioning_groups" in source_timeline:
+        timeline["reference_free_conditioning_groups"] = _shift_conditioning_groups(
+            source_timeline["reference_free_conditioning_groups"]
+        )
+    resolved = {
         **shot,
         "render_frames": render_frames,
         "padding_frames": render_frames - authored_with_context,
         "timeline": timeline,
         "conditioning": _apply_timeline(timeline, latent),
         "latent": latent,
-    }, adjustments
+    }
+    if shot.get("has_visual_references"):
+        resolved["reference_free_conditioning"] = _apply_timeline(
+            timeline,
+            latent,
+            reference_free=True,
+        )
+    return resolved, adjustments
 
 
 class FL_MiniMaxH3ShotMotionContext(io.ComfyNode):

@@ -7,7 +7,11 @@ from .nodes import (
     FL_MiniMaxH3PromptTimeline,
     FL_MiniMaxH3ShotAssembler,
     FL_MiniMaxH3ShotMotionContext,
+    FL_MiniMaxH3TemporalReshotAssembler,
+    FL_MiniMaxH3TemporalReshotPlanner,
 )
+
+from . import routes as routes
 
 
 NODE_CLASS_MAPPINGS = {
@@ -19,6 +23,8 @@ NODE_CLASS_MAPPINGS = {
     "FL_MiniMaxH3BeatUpscaleKSampler": FL_MiniMaxH3BeatUpscaleKSampler,
     "FL_MiniMaxH3LatentUpscale": FL_MiniMaxH3LatentUpscale,
     "FL_MiniMaxH3ShotAssembler": FL_MiniMaxH3ShotAssembler,
+    "FL_MiniMaxH3TemporalReshotPlanner": FL_MiniMaxH3TemporalReshotPlanner,
+    "FL_MiniMaxH3TemporalReshotAssembler": FL_MiniMaxH3TemporalReshotAssembler,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -30,6 +36,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FL_MiniMaxH3BeatUpscaleKSampler": "FL MiniMax H3 Beat Pixel Upscale KSampler",
     "FL_MiniMaxH3LatentUpscale": "FL MiniMax H3 Latent Upscale",
     "FL_MiniMaxH3ShotAssembler": "FL MiniMax H3 Shot Assembler",
+    "FL_MiniMaxH3TemporalReshotPlanner": "FL MiniMax H3 Temporal Reshot Planner",
+    "FL_MiniMaxH3TemporalReshotAssembler": "FL MiniMax H3 Temporal Reshot Assembler",
 }
 
 WEB_DIRECTORY = "./web"

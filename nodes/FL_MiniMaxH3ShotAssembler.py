@@ -16,6 +16,11 @@ def _shot_metadata(latent, position):
             f"FL MiniMax H3 Shot Assembler latent {position} is missing H3 shot metadata. "
             "Use latent nodes that preserve the latent dictionary."
         )
+    if isinstance(metadata.get("reshot"), dict):
+        raise ValueError(
+            "FL MiniMax H3 Shot Assembler does not assemble temporal reshots. "
+            "Use FL MiniMax H3 Temporal Reshot Assembler."
+        )
     return metadata
 
 

@@ -16,6 +16,12 @@ _UPSCALE_METHODS = ["bislerp", "bicubic", "bilinear", "nearest-exact"]
 
 
 def upscale_h3_latent(latent, target_long_side, upscale_method):
+    metadata = latent.get("fl_h3_shot") if isinstance(latent, dict) else None
+    if isinstance(metadata, dict) and isinstance(metadata.get("reshot"), dict):
+        raise ValueError(
+            "FL MiniMax H3 Latent Upscale does not support temporal reshots because their "
+            "source-preservation mask is tied to the planner canvas."
+        )
     video, audio = h3_tensors(latent, _OWNER)
     source_width = video.shape[-1] * H3_SPATIAL_DOWNSCALE
     source_height = video.shape[-2] * H3_SPATIAL_DOWNSCALE

@@ -77,8 +77,12 @@ def schedule(boundaries=(0, 54, 109, 163, 217), render_groups=None):
 class FakeClip:
     def __init__(self):
         self.encoded_prompts = []
+        self.tokenized_ref_types = []
 
     def tokenize(self, prompt, **kwargs):
+        self.tokenized_ref_types.append([
+            item["type"] for item in kwargs.get("minimax_ref_items", [])
+        ])
         return {"prompt": prompt, **kwargs}
 
     def encode_from_tokens_scheduled(self, tokens):
@@ -118,6 +122,67 @@ class ShotPlannerTests(unittest.TestCase):
         self.assertNotIn("sections_per_chunk", inputs)
         self.assertNotIn("individual_start_section", inputs)
         self.assertIn("prompt_envelopes", inputs)
+        fidelity = inputs["visual_condition_fidelity"]
+        self.assertEqual((fidelity.default, fidelity.min, fidelity.max, fidelity.step), (1.0, 0.0, 1.0, 0.01))
+        self.assertEqual(inputs["visual_reference_mode"].default, "full")
+        self.assertEqual(
+            inputs["visual_reference_mode"].options,
+            ["full", "qwen only", "latent only", "off"],
+        )
+        strength = inputs["reference_strength"]
+        self.assertEqual((strength.default, strength.min, strength.max, strength.step), (1.0, 0.0, 1.0, 0.01))
+
+    def test_visual_reference_modes_control_qwen_and_latent_paths_independently(self):
+        image = torch.zeros((1, 64, 64, 3))
+        video = torch.zeros((5, 64, 64, 3))
+        audio = {
+            "waveform": torch.zeros((1, 2, 24000)),
+            "sample_rate": 24000,
+        }
+        expected = {
+            "full": (
+                ["image", "audio", "video", "audio"],
+                ["image", "video_audio", "audio"],
+                2,
+            ),
+            "qwen only": (
+                ["image", "audio", "video", "audio"],
+                ["audio", "audio"],
+                0,
+            ),
+            "latent only": (
+                ["audio", "audio"],
+                ["image", "video_audio", "audio"],
+                2,
+            ),
+            "off": (
+                ["audio", "audio"],
+                ["audio", "audio"],
+                0,
+            ),
+        }
+
+        with mock.patch.object(timeline.minimax_h3, "adapt_canvas", return_value=(64, 64)):
+            for mode, (item_types, block_kinds, encode_count) in expected.items():
+                with self.subTest(mode=mode):
+                    vae = FakeVideoVAE()
+                    items, blocks = timeline._prepare_references(
+                        vae,
+                        FakeAudioVAE(),
+                        64,
+                        64,
+                        5,
+                        "match",
+                        {"ref_image_1": image},
+                        {"ref_video_1": video},
+                        {"ref_video_audio_1": audio},
+                        {"ref_audio_1": audio},
+                        visual_reference_mode=mode,
+                    )
+
+                    self.assertEqual([item["type"] for item in items], item_types)
+                    self.assertEqual([block["kind"] for block in blocks], block_kinds)
+                    self.assertEqual(len(vae.encoded_images), encode_count)
 
     def test_prompt_envelope_set_is_sliced_for_each_shot(self):
         audio = {
@@ -196,6 +261,99 @@ class ShotPlannerTests(unittest.TestCase):
             )
             self.assertEqual(len(shot["latent"]["samples"].unbind()), 2)
             self.assertEqual(shot["timeline"]["type"], "minimax_h3_prompt_timeline")
+            self.assertEqual(
+                shot["timeline"]["global_conditioning"][0][1]["minimax_visual_cond_noise_aug"],
+                timeline.VISUAL_COND_TIMESTEP,
+            )
+
+    def test_visual_condition_fidelity_reaches_every_conditioning_path(self):
+        frame_count = 5
+        prompt_envelopes = {
+            "type": "fl_prompt_envelope_set",
+            "version": 1,
+            "fps": 24.0,
+            "duration": frame_count / 24,
+            "envelopes": [{
+                "slot": 1,
+                "source": "beat_grid",
+                "prompt": "Pulse outward.",
+                "weights": [1.0] * frame_count,
+            }],
+        }
+        plan = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=FakeClip(),
+            vae=FakeVideoVAE(),
+            audio_vae=FakeAudioVAE(),
+            prompt_schedule=schedule((0, frame_count)),
+            timeline_audio={
+                "waveform": torch.zeros((1, 2, 5000)),
+                "sample_rate": 24000,
+            },
+            global_prompt="Same character.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+            visual_condition_fidelity=0.8,
+            prompt_envelopes=prompt_envelopes,
+            ref_images={"ref_image_1": torch.zeros((1, 64, 64, 3))},
+        ).result[0]
+
+        shot = plan["shots"][0]
+        timeline_object = shot["timeline"]
+        conditionings = [
+            timeline_object["global_conditioning"],
+            *(group["conditioning"] for group in timeline_object["conditioning_groups"]),
+            *(group["conditioning"] for group in timeline_object["prompt_envelope_groups"]),
+            shot["conditioning"],
+        ]
+        resized_latent, _ = timeline.minimax_h3._empty_av_latent(96, 64, frame_count)
+        conditionings.append(timeline._apply_timeline(timeline_object, resized_latent))
+
+        expected = timeline.VISUAL_COND_TIMESTEP * 0.8
+        for conditioning in conditionings:
+            self.assertTrue(conditioning)
+            for _, metadata in conditioning:
+                self.assertEqual(metadata["minimax_visual_cond_noise_aug"], expected)
+        self.assertIn("minimax_refs", timeline_object["global_conditioning"][0][1])
+
+    def test_planner_builds_an_audio_preserving_visual_reference_free_baseline(self):
+        clip = FakeClip()
+        reference_audio = {
+            "waveform": torch.zeros((1, 2, 24000)),
+            "sample_rate": 24000,
+        }
+        plan = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=clip,
+            vae=FakeVideoVAE(),
+            audio_vae=FakeAudioVAE(),
+            prompt_schedule=schedule((0, 5)),
+            timeline_audio={
+                "waveform": torch.zeros((1, 2, 5000)),
+                "sample_rate": 24000,
+            },
+            global_prompt="Same character.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+            visual_reference_mode="full",
+            reference_strength=0.35,
+            ref_images={"ref_image_1": torch.zeros((1, 64, 64, 3))},
+            ref_audios={"ref_audio_1": reference_audio},
+        ).result[0]
+
+        shot = plan["shots"][0]
+        selected = shot["timeline"]["global_conditioning"][0][1]["minimax_refs"]
+        baseline = shot["timeline"]["reference_free_global_conditioning"][0][1]["minimax_refs"]
+        self.assertEqual([block["kind"] for block in selected], ["image", "audio", "audio"])
+        self.assertEqual([block["kind"] for block in baseline], ["audio", "audio"])
+        self.assertTrue(shot["has_visual_references"])
+        self.assertEqual(shot["reference_strength"], 0.35)
+        self.assertEqual(plan["visual_reference_mode"], "full")
+        self.assertIn("reference_free_conditioning", shot)
+        self.assertIn(["image", "audio", "audio"], clip.tokenized_ref_types)
+        self.assertIn(["audio", "audio"], clip.tokenized_ref_types)
 
     def test_reuses_static_references_and_repeated_conditioning(self):
         value = schedule()
@@ -232,7 +390,12 @@ class ShotPlannerTests(unittest.TestCase):
         self.assertEqual(audio_vae.encoded_samples, [54000, 24000, 55000, 54000, 54000])
         self.assertEqual(
             clip.encoded_prompts,
-            ["Same character.", "Same character.\n\nRepeated action."],
+            [
+                "Same character.",
+                "Same character.\n\nRepeated action.",
+                "Same character.",
+                "Same character.\n\nRepeated action.",
+            ],
         )
         refs = [shot["timeline"]["global_conditioning"][0][1]["minimax_refs"] for shot in plan["shots"]]
         self.assertTrue(all(items[0] is refs[0][0] for items in refs))
@@ -360,6 +523,73 @@ class ShotPlannerTests(unittest.TestCase):
         shot["waveform"].zero_()
         self.assertNotEqual(waveform[0, 0, 5000], 0)
 
+    def test_schema_marks_schedule_audio_optional_and_exposes_render_outputs(self):
+        schema = timeline.FL_MiniMaxH3BeatShotPlanner.define_schema()
+        inputs = {value.id: value for value in schema.inputs}
+        self.assertTrue(inputs["prompt_schedule"].optional)
+        self.assertTrue(inputs["timeline_audio"].optional)
+        self.assertIn("length", inputs)
+        self.assertEqual(inputs["length"].default, 124)
+        self.assertEqual(
+            [value.display_name for value in schema.outputs],
+            ["shot_plan", "scheduled", "latent", "semantic"],
+        )
+        outputs = {value.display_name: value for value in schema.outputs}
+        self.assertEqual(outputs["scheduled"].io_type, "CONDITIONING")
+        self.assertEqual(outputs["latent"].io_type, "LATENT")
+        self.assertEqual(outputs["semantic"].io_type, "CONDITIONING")
+
+    def test_manual_single_render_plans_without_schedule_or_audio(self):
+        clip = FakeClip()
+        plan, scheduled, latent, semantic = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=clip,
+            vae=FakeVideoVAE(),
+            audio_vae=FakeAudioVAE(),
+            prompt_schedule=None,
+            timeline_audio=None,
+            length=124,
+            global_prompt="A single shot.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+        ).result
+
+        self.assertEqual(plan["total_frames"], 124)
+        self.assertEqual(len(plan["shots"]), 1)
+        shot = plan["shots"][0]
+        self.assertEqual(shot["start_frame"], 0)
+        self.assertEqual(shot["end_frame"], 124)
+        self.assertEqual(shot["prompt"], "A single shot.")
+        self.assertIsInstance(latent["samples"], comfy.nested_tensor.NestedTensor)
+        self.assertIs(scheduled, shot["conditioning"])
+        self.assertIs(latent, shot["latent"])
+        self.assertTrue(semantic)
+        self.assertEqual(clip.encoded_prompts[0], "A single shot.")
+
+    def test_schedule_mode_outputs_first_render_values(self):
+        plan, scheduled, latent, semantic = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+            clip=FakeClip(),
+            vae=FakeVideoVAE(),
+            audio_vae=FakeAudioVAE(),
+            prompt_schedule=schedule((0, 54, 109)),
+            timeline_audio={
+                "waveform": torch.zeros((1, 2, 109000)),
+                "sample_rate": 24000,
+            },
+            global_prompt="Same character.",
+            width=64,
+            height=64,
+            affect_audio="video only",
+            ref_image_size="match",
+        ).result
+
+        self.assertEqual(len(plan["shots"]), 2)
+        first = plan["shots"][0]
+        self.assertIs(scheduled, first["conditioning"])
+        self.assertIs(latent, first["latent"])
+        self.assertIs(semantic, first["conditioning"])
+
 
 class BeatKSamplerTests(unittest.TestCase):
     def test_outputs_a_native_latent_list(self):
@@ -382,6 +612,7 @@ class BeatKSamplerTests(unittest.TestCase):
             }
             for index in range(3)
         ]
+        shots[0]["reshot"] = {"version": 1, "selection_offset": 3}
         plan = {
             "type": "minimax_h3_beat_shot_plan",
             "version": 1,
@@ -416,10 +647,68 @@ class BeatKSamplerTests(unittest.TestCase):
             ["sampled-1", "sampled-2", "sampled-3"],
         )
         self.assertEqual(len(calls), 3)
+        self.assertEqual(
+            output[0]["fl_h3_shot"]["reshot"],
+            {"version": 1, "selection_offset": 3},
+        )
         for index, (args, kwargs) in enumerate(calls):
             self.assertEqual(args[6], f"conditioning-{index}")
             self.assertEqual(args[7], f"conditioning-{index}")
             self.assertEqual(kwargs["denoise"], 1.0)
+
+    def test_visual_reference_strength_guides_against_the_reference_free_conditioning(self):
+        shot = {
+            "index": 0,
+            "start_frame": 0,
+            "end_frame": 5,
+            "authored_frames": 5,
+            "render_frames": 5,
+            "conditioning": "selected",
+            "reference_free_conditioning": "visual-off",
+            "has_visual_references": True,
+            "reference_strength": 0.25,
+            "latent": {"samples": "latent"},
+        }
+        plan = {
+            "type": "minimax_h3_beat_shot_plan",
+            "version": 1,
+            "fps": 24,
+            "total_frames": 5,
+            "shots": [shot],
+        }
+
+        with mock.patch.object(
+            sampler.nodes,
+            "common_ksampler",
+            return_value=({"samples": "sampled"},),
+        ) as sample:
+            sampler.FL_MiniMaxH3BeatKSampler.execute(
+                model=object(),
+                shot_plan=plan,
+                seed=1,
+                seed_mode="fixed",
+                steps=20,
+                cfg=2.0,
+                sampler_name="euler",
+                scheduler="normal",
+                denoise=1.0,
+            )
+
+        args = sample.call_args.args
+        self.assertEqual(args[3], 0.5)
+        self.assertEqual(args[6], "selected")
+        self.assertEqual(args[7], "visual-off")
+
+    def test_zero_visual_reference_strength_samples_only_the_reference_free_path(self):
+        positive, negative, cfg = sampler._reference_guidance(
+            "selected",
+            "visual-off",
+            2.0,
+            0.0,
+            True,
+        )
+
+        self.assertEqual((positive, negative, cfg), ("visual-off", "visual-off", 1.0))
 
     def test_sampling_error_names_the_shot_and_frame_range(self):
         plan = {
@@ -646,6 +935,47 @@ class BeatUpscaleKSamplerTests(unittest.TestCase):
         self.assertTrue(torch.all(audio_mask == 0))
         self.assertNotIn("noise_mask", output)
         self.assertEqual(output["fl_h3_shot"], value["fl_h3_shot"])
+
+    def test_pixel_refinement_uses_the_same_visual_reference_guidance(self):
+        value = upscale_latent()
+        plan = upscale_plan()
+        plan["shots"][0].update({
+            "has_visual_references": True,
+            "reference_strength": 0.25,
+        })
+
+        def conditioning(_timeline, _latent, reference_free=False):
+            return "visual-off" if reference_free else "selected"
+
+        with (
+            mock.patch.object(sampler, "_apply_timeline", side_effect=conditioning),
+            mock.patch.object(
+                sampler.nodes,
+                "common_ksampler",
+                side_effect=lambda *args, **kwargs: (args[8].copy(),),
+            ) as sample,
+        ):
+            sampler.FL_MiniMaxH3BeatUpscaleKSampler.execute(
+                model=object(),
+                shot_plan=plan,
+                latent=value,
+                vae=FakePixelVAE(),
+                target_long_side=896,
+                upscale_method="bicubic",
+                seed=100,
+                seed_mode="fixed",
+                steps=16,
+                start_at_step=12,
+                end_at_step=16,
+                cfg=2.0,
+                sampler_name="euler",
+                scheduler="normal",
+            )
+
+        args = sample.call_args.args
+        self.assertEqual(args[3], 0.5)
+        self.assertEqual(args[6], "selected")
+        self.assertEqual(args[7], "visual-off")
 
     def test_rejects_a_target_smaller_than_the_decoded_video(self):
         with self.assertRaisesRegex(ValueError, "smaller than"):

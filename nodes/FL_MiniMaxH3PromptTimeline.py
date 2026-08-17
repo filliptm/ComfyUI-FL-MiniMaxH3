@@ -6,6 +6,7 @@ import torch
 
 import node_helpers
 import nodes
+from comfy.ldm.minimax.model import VISUAL_COND_TIMESTEP
 from comfy_api.latest import io
 from comfy_extras import nodes_minimax_h3 as minimax_h3
 
@@ -438,12 +439,17 @@ def _semantic_prompt(global_prompt, sections, prompt_envelopes=None):
 
 
 def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_size,
-                        ref_images, ref_videos, ref_video_audios, ref_audios, cache=None):
+                        ref_images, ref_videos, ref_video_audios, ref_audios, cache=None,
+                        visual_reference_mode="full"):
+    if visual_reference_mode not in ("full", "qwen only", "latent only", "off"):
+        raise ValueError(f"Unsupported MiniMax H3 visual reference mode: {visual_reference_mode}")
+    qwen_visual = visual_reference_mode in ("full", "qwen only")
+    latent_visual = visual_reference_mode in ("full", "latent only")
     ref_items = []
     ref_blocks = []
 
     for image in (ref_images or {}).values():
-        if image is None:
+        if image is None or not (qwen_visual or latent_visual):
             continue
         image_height, image_width = image.shape[1], image.shape[2]
         if ref_image_size == "match":
@@ -458,46 +464,53 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
             minimax_h3.CANVAS_MULTIPLE,
             round(image_height * scale / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
         )
-        key = ("image", id(image), target_width, target_height)
+        key = ("image", id(image), target_width, target_height, qwen_visual, latent_visual)
         prepared = cache.get(key) if cache is not None else None
         if prepared is None:
             resized = minimax_h3._resize(image[:1], target_width, target_height, "disabled")
-            latent = vae.encode(resized)
-            prepared = (
-                {"type": "image", "data": resized},
-                {
+            item = {"type": "image", "data": resized} if qwen_visual else None
+            block = None
+            if latent_visual:
+                block = {
                     "kind": "image",
                     "latent_h": target_height // 16,
                     "latent_w": target_width // 16,
-                    "latent": latent,
-                },
-            )
+                    "latent": vae.encode(resized),
+                }
+            prepared = (item, block)
             if cache is not None:
                 cache[key] = prepared
-        ref_items.append(prepared[0])
-        ref_blocks.append(prepared[1])
+        if prepared[0] is not None:
+            ref_items.append(prepared[0])
+        if prepared[1] is not None:
+            ref_blocks.append(prepared[1])
 
     ref_video_audios = ref_video_audios or {}
     for name, video_frames in (ref_videos or {}).items():
         if video_frames is None:
             continue
         soundtrack = ref_video_audios.get("ref_video_audio_" + name.rsplit("_", 1)[-1])
-        video_height, video_width = video_frames.shape[1], video_frames.shape[2]
-        canvas_width, canvas_height = minimax_h3.adapt_canvas(video_width, video_height)
-        if video_width * video_height < canvas_width * canvas_height:
-            canvas_width = max(
-                minimax_h3.CANVAS_MULTIPLE,
-                round(video_width / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
-            )
-            canvas_height = max(
-                minimax_h3.CANVAS_MULTIPLE,
-                round(video_height / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
-            )
-        count = min(video_frames.shape[0], frame_count)
-        if count < 5:
-            raise ValueError("MiniMax H3 reference videos need at least 5 frames (~0.2s at 24 fps).")
-        while count % 17 != 5:
-            count -= 1
+        if not (qwen_visual or latent_visual) and soundtrack is None:
+            continue
+        count = 0
+        canvas_width = canvas_height = 0
+        if qwen_visual or latent_visual:
+            video_height, video_width = video_frames.shape[1], video_frames.shape[2]
+            canvas_width, canvas_height = minimax_h3.adapt_canvas(video_width, video_height)
+            if video_width * video_height < canvas_width * canvas_height:
+                canvas_width = max(
+                    minimax_h3.CANVAS_MULTIPLE,
+                    round(video_width / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
+                )
+                canvas_height = max(
+                    minimax_h3.CANVAS_MULTIPLE,
+                    round(video_height / minimax_h3.CANVAS_MULTIPLE) * minimax_h3.CANVAS_MULTIPLE,
+                )
+            count = min(video_frames.shape[0], frame_count)
+            if count < 5:
+                raise ValueError("MiniMax H3 reference videos need at least 5 frames (~0.2s at 24 fps).")
+            while count % 17 != 5:
+                count -= 1
         key = (
             "video",
             id(video_frames),
@@ -505,29 +518,34 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
             canvas_width,
             canvas_height,
             id(soundtrack) if soundtrack is not None else None,
+            qwen_visual,
+            latent_visual,
         )
         prepared = cache.get(key) if cache is not None else None
         if prepared is None:
-            frames = minimax_h3._resize(
-                video_frames[:count], canvas_width, canvas_height, "disabled"
-            )
-            latent = vae.encode(frames)
+            frames = None
+            if qwen_visual or latent_visual:
+                frames = minimax_h3._resize(
+                    video_frames[:count], canvas_width, canvas_height, "disabled"
+                )
             audio_latent, audio_length = None, 0
             items = []
             if soundtrack is not None:
-                audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
+                audio_latent, audio_length = minimax_h3._encode_ref_audio(
                     audio_vae, soundtrack
                 )
                 items.append({"type": "audio"})
-            sample_indices = list(range(0, frames.shape[0], minimax_h3.FPS // 2))
-            items.append({
-                "type": "video",
-                "data": frames[sample_indices],
-                "timestamps": [index / 2.0 for index in range(len(sample_indices))],
-            })
-            prepared = (
-                items,
-                {
+            if qwen_visual:
+                sample_indices = list(range(0, frames.shape[0], minimax_h3.FPS // 2))
+                items.append({
+                    "type": "video",
+                    "data": frames[sample_indices],
+                    "timestamps": [index / 2.0 for index in range(len(sample_indices))],
+                })
+            block = None
+            if latent_visual:
+                latent = vae.encode(frames)
+                block = {
                     "kind": "video_audio" if audio_length else "video",
                     "latent_t": latent.shape[2],
                     "latent_h": canvas_height // 16,
@@ -535,12 +553,19 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
                     "ref_audio_t": audio_length,
                     "latent": latent,
                     "audio_latent": audio_latent,
-                },
-            )
+                }
+            elif audio_length:
+                block = {
+                    "kind": "audio",
+                    "ref_audio_t": audio_length,
+                    "audio_latent": audio_latent,
+                }
+            prepared = (items, block)
             if cache is not None:
                 cache[key] = prepared
         ref_items.extend(prepared[0])
-        ref_blocks.append(prepared[1])
+        if prepared[1] is not None:
+            ref_blocks.append(prepared[1])
 
     for audio in (ref_audios or {}).values():
         if audio is None:
@@ -548,7 +573,7 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
         key = ("audio", id(audio))
         prepared = cache.get(key) if cache is not None else None
         if prepared is None:
-            audio_latent, audio_length = minimax_h3.MiniMaxH3ReferenceToVideo._encode_ref_audio(
+            audio_latent, audio_length = minimax_h3._encode_ref_audio(
                 audio_vae, audio
             )
             prepared = (
@@ -567,7 +592,22 @@ def _prepare_references(vae, audio_vae, width, height, frame_count, ref_image_si
     return ref_items, ref_blocks
 
 
-def _encode_prompt(clip, prompt, ref_items, ref_blocks, cache=None):
+def _without_visual_references(ref_items, ref_blocks):
+    audio_items = [item for item in ref_items if item["type"] == "audio"]
+    audio_blocks = []
+    for block in ref_blocks:
+        if block["kind"] == "audio":
+            audio_blocks.append(block)
+        elif block["kind"] == "video_audio" and block["ref_audio_t"]:
+            audio_blocks.append({
+                "kind": "audio",
+                "ref_audio_t": block["ref_audio_t"],
+                "audio_latent": block["audio_latent"],
+            })
+    return audio_items, audio_blocks
+
+
+def _encode_prompt(clip, prompt, ref_items, ref_blocks, cache=None, visual_cond_noise_aug=None):
     key = (
         prompt,
         tuple(
@@ -581,9 +621,14 @@ def _encode_prompt(clip, prompt, ref_items, ref_blocks, cache=None):
         conditioning = clip.encode_from_tokens_scheduled(tokens)
         if cache is not None:
             cache[key] = conditioning
+    values = {}
     if ref_blocks:
+        values["minimax_refs"] = ref_blocks
+    if visual_cond_noise_aug is not None:
+        values["minimax_visual_cond_noise_aug"] = visual_cond_noise_aug
+    if values:
         conditioning = node_helpers.conditioning_set_values(
-            conditioning, {"minimax_refs": ref_blocks}
+            conditioning, values
         )
     return conditioning
 
@@ -721,7 +766,15 @@ def _envelope_temporal_weights(envelope, video_t, audio_t, affect_audio):
     return video_weights, audio_weights
 
 
-def _conditioning_groups(clip, global_prompt, sections, ref_items, ref_blocks, cache=None):
+def _conditioning_groups(
+    clip,
+    global_prompt,
+    sections,
+    ref_items,
+    ref_blocks,
+    cache=None,
+    visual_cond_noise_aug=None,
+):
     groups = {}
     for index, section in enumerate(sections):
         prompt = _combine_prompt(global_prompt, section["prompt"])
@@ -730,14 +783,29 @@ def _conditioning_groups(clip, global_prompt, sections, ref_items, ref_blocks, c
             group = {
                 "prompt": prompt,
                 "section_indices": [],
-                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks, cache),
+                "conditioning": _encode_prompt(
+                    clip,
+                    prompt,
+                    ref_items,
+                    ref_blocks,
+                    cache,
+                    visual_cond_noise_aug,
+                ),
             }
             groups[prompt] = group
         group["section_indices"].append(index)
     return list(groups.values())
 
 
-def _prompt_envelope_groups(clip, global_prompt, prompt_envelopes, ref_items, ref_blocks, cache=None):
+def _prompt_envelope_groups(
+    clip,
+    global_prompt,
+    prompt_envelopes,
+    ref_items,
+    ref_blocks,
+    cache=None,
+    visual_cond_noise_aug=None,
+):
     groups = {}
     for index, envelope in enumerate(prompt_envelopes):
         prompt = _combine_prompt(global_prompt, envelope["prompt"])
@@ -746,7 +814,14 @@ def _prompt_envelope_groups(clip, global_prompt, prompt_envelopes, ref_items, re
             group = {
                 "prompt": prompt,
                 "envelope_indices": [],
-                "conditioning": _encode_prompt(clip, prompt, ref_items, ref_blocks, cache),
+                "conditioning": _encode_prompt(
+                    clip,
+                    prompt,
+                    ref_items,
+                    ref_blocks,
+                    cache,
+                    visual_cond_noise_aug,
+                ),
             }
             groups[prompt] = group
         group["envelope_indices"].append(index)
@@ -785,7 +860,7 @@ def _flatten_mask(video_shape, audio_shape, video_weights, audio_weights):
     return torch.cat((video, audio)).unsqueeze(0)
 
 
-def _apply_timeline(timeline, latent):
+def _apply_timeline(timeline, latent, reference_free=False):
     if not isinstance(timeline, dict) or timeline.get("type") != "minimax_h3_prompt_timeline":
         raise TypeError("FL MiniMax H3 Apply Timeline received an invalid timeline object.")
 
@@ -798,9 +873,16 @@ def _apply_timeline(timeline, latent):
 
     sections = timeline["sections"]
     prompt_envelopes = timeline.get("prompt_envelopes", [])
-    prompt_envelope_groups = timeline.get("prompt_envelope_groups", [])
+    if reference_free and "reference_free_global_conditioning" in timeline:
+        global_conditioning = timeline["reference_free_global_conditioning"]
+        conditioning_groups = timeline["reference_free_conditioning_groups"]
+        prompt_envelope_groups = timeline["reference_free_prompt_envelope_groups"]
+    else:
+        global_conditioning = timeline["global_conditioning"]
+        conditioning_groups = timeline["conditioning_groups"]
+        prompt_envelope_groups = timeline.get("prompt_envelope_groups", [])
     if not sections and not prompt_envelopes:
-        return timeline["global_conditioning"]
+        return global_conditioning
 
     conditioning = []
     if sections:
@@ -812,7 +894,7 @@ def _apply_timeline(timeline, latent):
             timeline["transition_frames"],
             timeline["affect_audio"],
         )
-        for group in timeline["conditioning_groups"]:
+        for group in conditioning_groups:
             group_video = _merge_section_weights(video_weights, group["section_indices"])
             group_audio = _merge_section_weights(audio_weights, group["section_indices"])
             if any(group_video) or any(group_audio):
@@ -853,10 +935,10 @@ def _apply_timeline(timeline, latent):
                 )
 
     if not conditioning:
-        return timeline["global_conditioning"]
+        return global_conditioning
     conditioning.extend(
         node_helpers.conditioning_set_values(
-            timeline["global_conditioning"], {"default": True}
+            global_conditioning, {"default": True}
         )
     )
     return conditioning
@@ -1451,13 +1533,30 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ),
                 FLPromptSchedule.Input(
                     "prompt_schedule",
-                    tooltip="Exact 24 fps shot ranges from FL Audio Beat Prompt Schedule.",
+                    optional=True,
+                    tooltip=(
+                        "Exact 24 fps shot ranges from FL Audio Beat Prompt Schedule. Optional; when "
+                        "disconnected the node plans one full-length render from the length input."
+                    ),
                 ),
                 io.Audio.Input(
                     "timeline_audio",
+                    optional=True,
                     tooltip=(
                         "Frame-aligned cropped audio from FL Audio Beat Prompt Schedule. "
-                        "Each shot receives only its matching slice."
+                        "Each shot receives only its matching slice. Optional; when disconnected "
+                        "each planned render has no shot-local audio reference."
+                    ),
+                ),
+                io.Int.Input(
+                    "length",
+                    default=124,
+                    min=5,
+                    max=3600,
+                    step=17,
+                    tooltip=(
+                        "Requested frame count for a single render, used only when prompt_schedule is "
+                        "not connected. H3 snaps it to the 17k+5 frame grid."
                     ),
                 ),
                 io.String.Input(
@@ -1493,6 +1592,41 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                     options=["match", "max"],
                     default="match",
                     tooltip="Reference image sizing, matching the standard MiniMax H3 reference node.",
+                ),
+                io.Float.Input(
+                    "visual_condition_fidelity",
+                    display_name="visual latent fidelity",
+                    default=1.0,
+                    min=0.0,
+                    max=1.0,
+                    step=0.01,
+                    tooltip=(
+                        "Noise fidelity for H3 visual latent references and motion context. Lower values "
+                        "replace more latent detail with seeded noise. This does not scale Qwen-VL."
+                    ),
+                ),
+                io.Combo.Input(
+                    "visual_reference_mode",
+                    options=["full", "qwen only", "latent only", "off"],
+                    default="full",
+                    tooltip=(
+                        "Select which visual reference paths receive connected images and videos. "
+                        "Reference audio and video soundtracks remain active in every mode."
+                    ),
+                ),
+                io.Float.Input(
+                    "reference_strength",
+                    display_name="visual reference strength",
+                    default=1.0,
+                    min=0.0,
+                    max=1.0,
+                    step=0.01,
+                    tooltip=(
+                        "Blend from a prediction without connected visual references at 0 to the "
+                        "selected mode at 1. Audio and prior-shot motion context remain in both. Beat "
+                        "sampler cfg multiplies this value; effective blends other than 0 or 1 require "
+                        "both predictions while sampling."
+                    ),
                 ),
                 FLPromptEnvelopeSet.Input(
                     "prompt_envelopes",
@@ -1551,7 +1685,29 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 H3ShotPlan.Output(
                     display_name="shot_plan",
                     tooltip="Planned nested H3 latents and conditioning for sequential sampling.",
-                )
+                ),
+                io.Conditioning.Output(
+                    display_name="scheduled",
+                    tooltip=(
+                        "Positive conditioning. Meaningful for the single render produced when "
+                        "prompt_schedule is not connected; with a schedule it reflects the first render."
+                    ),
+                ),
+                io.Latent.Output(
+                    display_name="latent",
+                    tooltip=(
+                        "Native nested MiniMax H3 video/audio latent. Meaningful for the single render "
+                        "produced when prompt_schedule is not connected; with a schedule it reflects "
+                        "the first render."
+                    ),
+                ),
+                io.Conditioning.Output(
+                    display_name="semantic",
+                    tooltip=(
+                        "Single global conditioning. Used for the manual single render; with a schedule "
+                        "it reflects the first render."
+                    ),
+                ),
             ],
         )
 
@@ -1561,26 +1717,53 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
         clip,
         vae,
         audio_vae,
-        prompt_schedule,
-        timeline_audio,
         global_prompt,
         width,
         height,
         affect_audio,
         ref_image_size,
+        visual_condition_fidelity=1.0,
+        visual_reference_mode="full",
+        reference_strength=1.0,
         prompt_envelopes=None,
         ref_images=None,
         ref_videos=None,
         ref_video_audios=None,
         ref_audios=None,
+        prompt_schedule=None,
+        timeline_audio=None,
+        length=None,
     ):
-        sections, total_frames = _beat_shot_sections(prompt_schedule)
-        section_groups = _render_section_groups(sections)
+        is_manual = prompt_schedule is None
+        if is_manual:
+            authored_frames = max(5, round(length or 124))
+            duration = authored_frames / minimax_h3.FPS
+            section = {
+                "line": 1,
+                "start": 0.0,
+                "end": duration,
+                "fade_in_end": 0.0,
+                "fade_out_start": duration,
+                "crossfade_start": 0.0,
+                "crossfade_end": 0.0,
+                "curve": "linear",
+                "prompt": "",
+                "start_frame": 0,
+                "end_frame": authored_frames,
+            }
+            sections = [section]
+            total_frames = authored_frames
+            section_groups = [sections]
+        else:
+            sections, total_frames = _beat_shot_sections(prompt_schedule)
+            section_groups = _render_section_groups(sections)
         envelopes = _prompt_envelope_set(prompt_envelopes)
         shots = []
         total_render_frames = 0
         reference_cache = {}
         conditioning_cache = {}
+        visual_cond_noise_aug = VISUAL_COND_TIMESTEP * visual_condition_fidelity
+        manual_semantic = None
 
         for index, section_group in enumerate(section_groups):
             start_frame = section_group[0]["start_frame"]
@@ -1592,7 +1775,10 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 authored_frames,
             )
             video, audio = _h3_tensors(latent)
-            local_audio = _shot_audio(timeline_audio, start_frame, end_frame)
+            if timeline_audio is not None:
+                local_audio = _shot_audio(timeline_audio, start_frame, end_frame)
+            else:
+                local_audio = None
             ref_items, ref_blocks = _prepare_references(
                 vae,
                 audio_vae,
@@ -1605,7 +1791,21 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_video_audios,
                 None,
                 reference_cache,
+                visual_reference_mode,
             )
+            has_visual_references = any(
+                item["type"] in ("image", "video") for item in ref_items
+            ) or any(
+                block["kind"] in ("image", "video", "video_audio") for block in ref_blocks
+            )
+            if has_visual_references:
+                reference_free_ref_items, reference_free_ref_blocks = _without_visual_references(
+                    ref_items,
+                    ref_blocks,
+                )
+            else:
+                reference_free_ref_items = ref_items
+                reference_free_ref_blocks = ref_blocks
             local_ref_items, local_ref_blocks = _prepare_references(
                 vae,
                 audio_vae,
@@ -1620,6 +1820,9 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
             )
             ref_items.extend(local_ref_items)
             ref_blocks.extend(local_ref_blocks)
+            if has_visual_references:
+                reference_free_ref_items.extend(local_ref_items)
+                reference_free_ref_blocks.extend(local_ref_blocks)
             extra_ref_items, extra_ref_blocks = _prepare_references(
                 vae,
                 audio_vae,
@@ -1635,6 +1838,9 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
             )
             ref_items.extend(extra_ref_items)
             ref_blocks.extend(extra_ref_blocks)
+            if has_visual_references:
+                reference_free_ref_items.extend(extra_ref_items)
+                reference_free_ref_blocks.extend(extra_ref_blocks)
 
             local_sections = []
             for section in section_group:
@@ -1670,7 +1876,10 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_items,
                 ref_blocks,
                 conditioning_cache,
+                visual_cond_noise_aug,
             )
+            if is_manual:
+                manual_semantic = global_conditioning
             conditioning_groups = _conditioning_groups(
                 clip,
                 global_prompt,
@@ -1678,6 +1887,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_items,
                 ref_blocks,
                 conditioning_cache,
+                visual_cond_noise_aug,
             )
             prompt_envelope_groups = _prompt_envelope_groups(
                 clip,
@@ -1686,7 +1896,35 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_items,
                 ref_blocks,
                 conditioning_cache,
+                visual_cond_noise_aug,
             )
+            if has_visual_references:
+                reference_free_global_conditioning = _encode_prompt(
+                    clip,
+                    global_prompt.strip(),
+                    reference_free_ref_items,
+                    reference_free_ref_blocks,
+                    conditioning_cache,
+                    visual_cond_noise_aug,
+                )
+                reference_free_conditioning_groups = _conditioning_groups(
+                    clip,
+                    global_prompt,
+                    local_sections,
+                    reference_free_ref_items,
+                    reference_free_ref_blocks,
+                    conditioning_cache,
+                    visual_cond_noise_aug,
+                )
+                reference_free_prompt_envelope_groups = _prompt_envelope_groups(
+                    clip,
+                    global_prompt,
+                    shot_envelopes,
+                    reference_free_ref_items,
+                    reference_free_ref_blocks,
+                    conditioning_cache,
+                    visual_cond_noise_aug,
+                )
             timeline = {
                 "type": "minimax_h3_prompt_timeline",
                 "frame_count": render_frames,
@@ -1707,18 +1945,37 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 "transition_frames": 0,
                 "affect_audio": affect_audio,
             }
-            shots.append({
+            if has_visual_references:
+                timeline.update({
+                    "reference_free_conditioning_groups": reference_free_conditioning_groups,
+                    "reference_free_prompt_envelope_groups": reference_free_prompt_envelope_groups,
+                    "reference_free_global_conditioning": reference_free_global_conditioning,
+                })
+            shot = {
                 "index": index,
                 "start_frame": start_frame,
                 "end_frame": end_frame,
                 "authored_frames": authored_frames,
                 "render_frames": render_frames,
                 "padding_frames": render_frames - authored_frames,
-                "prompt": "\n\n".join(section["prompt"] for section in section_group),
+                "prompt": (
+                    global_prompt.strip()
+                    if is_manual
+                    else "\n\n".join(section["prompt"] for section in section_group)
+                ),
                 "timeline": timeline,
                 "conditioning": _apply_timeline(timeline, latent),
+                "has_visual_references": has_visual_references,
+                "reference_strength": reference_strength,
                 "latent": latent,
-            })
+            }
+            if has_visual_references:
+                shot["reference_free_conditioning"] = _apply_timeline(
+                    timeline,
+                    latent,
+                    reference_free=True,
+                )
+            shots.append(shot)
             total_render_frames += render_frames
 
         plan = {
@@ -1727,6 +1984,8 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
             "fps": minimax_h3.FPS,
             "width": width,
             "height": height,
+            "visual_reference_mode": visual_reference_mode,
+            "reference_strength": reference_strength,
             "total_frames": total_frames,
             "total_render_frames": total_render_frames,
             "shots": shots,
@@ -1740,4 +1999,11 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
             total_render_frames,
             total_render_frames - total_frames,
         )
-        return io.NodeOutput(plan)
+        first_shot = shots[0]
+        semantic = manual_semantic if is_manual else first_shot["conditioning"]
+        return io.NodeOutput(
+            plan,
+            first_shot["conditioning"],
+            first_shot["latent"],
+            semantic,
+        )

@@ -113,6 +113,12 @@ class MiniMaxH3LatentUpscaleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "smaller than"):
             upscale.upscale_h3_latent(latent, 256, "bislerp")
 
+    def test_temporal_reshot_cannot_drop_its_source_preservation_mask(self):
+        latent = h3_latent()
+        latent["fl_h3_shot"]["reshot"] = {"version": 1}
+        with self.assertRaisesRegex(ValueError, "does not support temporal reshots"):
+            upscale.upscale_h3_latent(latent, 896, "bilinear")
+
     def test_rejects_non_h3_latent_structures(self):
         with self.assertRaisesRegex(TypeError, "latent dictionary"):
             upscale.upscale_h3_latent(torch.zeros((1, 4, 8, 8)), 1024, "bislerp")

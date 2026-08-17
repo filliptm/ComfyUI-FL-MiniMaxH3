@@ -8,7 +8,7 @@ from comfy_execution.utils import get_executing_context
 
 from ._latent_helpers import H3_PIXEL_MULTIPLE, primary_only_noise_mask, target_canvas
 from ._live_preview import publish_preview, send_preview_event
-from ._motion_context import apply_previous_shot_context, motion_context_model
+from ._motion_context import apply_previous_shot_context, apply_previous_shot_contexts, motion_context_model
 from .FL_MiniMaxH3PromptTimeline import _apply_timeline, _h3_tensors
 
 
@@ -41,6 +41,21 @@ def _validate_shot_plan(plan):
     return shots
 
 
+def _reference_guidance(
+    conditioning,
+    reference_free_conditioning,
+    cfg,
+    reference_strength,
+    has_visual_references,
+):
+    if not has_visual_references or reference_free_conditioning is None:
+        return conditioning, conditioning, cfg
+    scale = cfg * reference_strength
+    if scale == 0:
+        return reference_free_conditioning, reference_free_conditioning, 1.0
+    return conditioning, reference_free_conditioning, scale
+
+
 def _target_canvas(source_width, source_height, target_long_side):
     return target_canvas(
         source_width,
@@ -51,6 +66,11 @@ def _target_canvas(source_width, source_height, target_long_side):
 
 
 def _shot_for_latent(shot_plan, latent):
+    if isinstance(shot_plan, dict) and shot_plan.get("mode") == "temporal_reshot":
+        raise ValueError(
+            "FL MiniMax H3 Beat Pixel Upscale KSampler does not support temporal reshots. "
+            "Connect the first Beat KSampler directly to Temporal Reshot Assembler."
+        )
     shots = _validate_shot_plan(shot_plan)
     metadata = latent.get("fl_h3_shot") if isinstance(latent, dict) else None
     if not isinstance(metadata, dict) or metadata.get("version") != 1:
@@ -166,7 +186,10 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     min=0.0,
                     max=100.0,
                     step=0.1,
-                    tooltip="MiniMax H3 guidance scale. The normal H3 workflow uses CFG 1.",
+                    tooltip=(
+                        "Multiplier for the planned visual reference strength. Leave at 1 for the "
+                        "planner's direct 0-1 blend; higher values can over-guide references."
+                    ),
                 ),
                 io.Combo.Input(
                     "sampler_name",
@@ -273,14 +296,32 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     total=len(shots),
                 )
             conditioning = shot["conditioning"]
+            reference_free_conditioning = shot.get("reference_free_conditioning")
+            has_visual_references = bool(shot.get("has_visual_references"))
             if position:
-                conditioning = apply_previous_shot_context(
-                    conditioning,
-                    sampled[-1],
-                    shots[position - 1],
-                    shot,
-                    vae,
-                )
+                if has_visual_references and reference_free_conditioning is not None:
+                    conditioning, reference_free_conditioning = apply_previous_shot_contexts(
+                        [conditioning, reference_free_conditioning],
+                        sampled[-1],
+                        shots[position - 1],
+                        shot,
+                        vae,
+                    )
+                else:
+                    conditioning = apply_previous_shot_context(
+                        conditioning,
+                        sampled[-1],
+                        shots[position - 1],
+                        shot,
+                        vae,
+                    )
+            positive, negative, guidance = _reference_guidance(
+                conditioning,
+                reference_free_conditioning,
+                cfg,
+                shot.get("reference_strength", shot_plan.get("reference_strength", 1.0)),
+                has_visual_references,
+            )
             logging.info(
                 "FL MiniMax H3 beat sampler: render %d/%d, frames %d-%d, seed %d.",
                 position + 1,
@@ -294,11 +335,11 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                     model,
                     shot_seed,
                     steps,
-                    cfg,
+                    guidance,
                     sampler_name,
                     scheduler,
-                    conditioning,
-                    conditioning,
+                    positive,
+                    negative,
                     shot["latent"],
                     denoise=denoise,
                 )[0]
@@ -321,6 +362,8 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
             }
             if isinstance(shot.get("motion_context"), dict):
                 latent["fl_h3_shot"]["motion_context"] = dict(shot["motion_context"])
+            if isinstance(shot.get("reshot"), dict):
+                latent["fl_h3_shot"]["reshot"] = dict(shot["reshot"])
             sampled.append(latent)
             if live_preview and vae is not None:
                 publish_preview(
@@ -436,7 +479,10 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                     min=0.0,
                     max=100.0,
                     step=0.1,
-                    tooltip="MiniMax H3 guidance scale. The normal H3 workflow uses CFG 1.",
+                    tooltip=(
+                        "Multiplier for the planned visual reference strength. Leave at 1 for the "
+                        "planner's direct 0-1 blend; higher values can over-guide references."
+                    ),
                 ),
                 io.Combo.Input(
                     "sampler_name",
@@ -519,6 +565,21 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
             upscale_method,
         )
         conditioning = _apply_timeline(timeline, resized)
+        reference_free_conditioning = None
+        has_visual_references = bool(shot.get("has_visual_references"))
+        if has_visual_references:
+            reference_free_conditioning = _apply_timeline(
+                timeline,
+                resized,
+                reference_free=True,
+            )
+        positive, negative, guidance = _reference_guidance(
+            conditioning,
+            reference_free_conditioning,
+            cfg,
+            shot.get("reference_strength", shot_plan.get("reference_strength", 1.0)),
+            has_visual_references,
+        )
         sample_input = resized.copy()
         motion_context = metadata.get("motion_context") or {}
         sample_input["noise_mask"] = primary_only_noise_mask(
@@ -544,11 +605,11 @@ class FL_MiniMaxH3BeatUpscaleKSampler(io.ComfyNode):
                 model,
                 shot_seed,
                 steps,
-                cfg,
+                guidance,
                 sampler_name,
                 scheduler,
-                conditioning,
-                conditioning,
+                positive,
+                negative,
                 sample_input,
                 denoise=1.0,
                 start_step=start_at_step,

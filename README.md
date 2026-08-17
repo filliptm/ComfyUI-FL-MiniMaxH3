@@ -1,6 +1,6 @@
 # FL MiniMax H3
 
-MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, beat-aligned render planning, optional cross-shot motion context, grouped and independent shot sampling, native latent upscaling, pixel-space refinement, and final shot assembly while preserving MiniMax H3's nested video/audio latent format.
+MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, beat-aligned render planning, full-frame temporal reshots, optional cross-shot motion context, grouped and independent shot sampling, native latent upscaling, pixel-space refinement, and final shot assembly while preserving MiniMax H3's nested video/audio latent format.
 
 [![MiniMax H3](https://img.shields.io/badge/MiniMax-H3-7c3aed?style=for-the-badge)](https://github.com/Comfy-Org/ComfyUI)
 [![Patreon](https://img.shields.io/badge/Patreon-Support%20Me-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/Machinedelusions)
@@ -10,6 +10,7 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 - **Strict prompt timelines** - Schedule prompt conditioning over H3 video tokens in seconds, frames, or beats
 - **Reference-aware conditioning** - Use H3 reference images, videos, video audio, and standalone audio
 - **Beat shot planning** - Turn an `FL_PROMPT_SCHEDULE` into independently renderable or explicitly grouped shots
+- **Temporal reshots** - Move and resize a frame-exact interval on a source-video timeline, regenerate that entire span, and keep the rest of the clip intact
 - **Hard-cut motion context** - Condition each render on a configurable authored tail from the previous render without showing overlap frames
 - **Nested latent sampling** - Sample MiniMax H3 video and audio latents without flattening their native structure
 - **Native latent upscaling** - Resize only video latent height and width without a VAE round trip
@@ -24,12 +25,14 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 |------|-------------|
 | **FL MiniMax H3 Prompt Timeline** | Builds native H3 video/audio latents and strict temporal conditioning from a manual or connected prompt schedule |
 | **FL MiniMax H3 Apply Timeline** | Rebuilds the strict temporal conditioning after an H3 latent has been spatially resized |
-| **FL MiniMax H3 Beat Shot Planner** | Converts a beat prompt schedule into grouped or independent H3 render plans with matching audio slices |
+| **FL MiniMax H3 Beat Shot Planner** | Converts a beat prompt schedule into grouped or independent H3 render plans with matching audio slices; schedule and audio are optional, and without a schedule it plans one full-length render and exposes its latent and conditioning for a standard sampler |
 | **FL MiniMax H3 Shot Motion Context** | Adds adjustable previous-render video/audio context and per-render overrides while preserving hard cuts |
 | **FL MiniMax H3 Beat KSampler** | Samples every planned H3 render and returns editable nested latents |
 | **FL MiniMax H3 Latent Upscale** | Spatially upscales the H3 video latent while preserving time, audio, and shot metadata |
 | **FL MiniMax H3 Beat Pixel Upscale KSampler** | Decodes each render to pixels, resizes proportionally, re-encodes, and refines over a configurable sampling-step window |
 | **FL MiniMax H3 Shot Assembler** | Decodes and concatenates completed render latents into one image sequence |
+| **FL MiniMax H3 Temporal Reshot Planner** | Opens a dedicated source-library and timeline editor, then builds a source-anchored full-frame temporal inpaint plan from the selected interval |
+| **FL MiniMax H3 Temporal Reshot Assembler** | Splices the sampled interval into the original video while preserving outside frames, source audio, frame rate, metadata, alpha, and bit depth |
 
 ## Installation
 
@@ -85,6 +88,27 @@ Hard cut to a low tracking shot as the subject moves forward.
 ```
 
 Frame ranges are zero-based and their end is exclusive.
+
+## Temporal reshot workflow
+
+Use the reshot path when the edit is a span of time rather than an object mask:
+
+```text
+FL MiniMax H3 Temporal Reshot Planner
+    -> FL MiniMax H3 Beat KSampler
+    -> FL MiniMax H3 Temporal Reshot Assembler
+```
+
+1. Click **Open Temporal Reshot Editor**. Browse recursively under ComfyUI's input directory, search the local source library, or drop/upload a video into it. Sources at other frame rates, including variable-frame-rate videos, are normalized locally to a 24 fps editing timeline.
+2. Drag the purple interval to move it, drag either edge to resize it, or enter exact frame values in the inspector. Wheel zooms the timeline; Alt-drag or middle-drag pans it.
+3. Set source context before and after the selection. Teal shows retained context, purple is the exact replacement, and the hatched range shows any extra H3 temporal tokens that must be sampled coherently.
+4. Enter the new prompt in the modal and connect optional reference images on the node. Connect the audio VAE when source sound should condition the new motion; the assembler always keeps the original soundtrack.
+5. Close the editor with **Done** or Escape. Changes save directly to the node, whose compact preview loops the selected interval without taking over the graph canvas.
+6. Sample the one-render plan with **FL MiniMax H3 Beat KSampler**, then connect that latent, the exact plan, and the video VAE to **Temporal Reshot Assembler**.
+
+The sampler denoises full spatial frames only across the H3 tokens intersecting the selection. Source latent is re-injected everywhere else at every step. The assembler decodes the working window, extracts the exact authored interval, resizes it back to source dimensions, and overwrites only those source frames. `edge_blend_frames` optionally softens the two temporal joins inside the selected range; it never changes a frame outside it.
+
+Current limitations are deliberate: one interval per planner, no spatial/object mask, and no latent or pixel-upscale pass between sampling and reshot assembly. The H3 working window snaps to the model's `17k+5` frame grid; the UI warns when it falls outside H3's approximate 124–362-frame trained range. The assembler materializes and normalizes the full source video in memory, so long or high-resolution sources require substantial system RAM.
 
 ## Beat-scheduled music-video workflow
 

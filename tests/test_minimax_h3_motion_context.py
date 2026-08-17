@@ -102,7 +102,7 @@ def prompt_schedule():
     }
 
 
-def planned_shots():
+def planned_shots(ref_images=None):
     return timeline.FL_MiniMaxH3BeatShotPlanner.execute(
         clip=FakeClip(),
         vae=FakeVideoVAE(),
@@ -117,6 +117,7 @@ def planned_shots():
         height=64,
         affect_audio="video only",
         ref_image_size="match",
+        ref_images=ref_images,
     ).result[0]
 
 
@@ -181,6 +182,18 @@ class ShotMotionContextPlanTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "use 1 or less"):
             motion.FL_MiniMaxH3ShotMotionContext.execute(source, "5", 0)
+
+    def test_context_extension_rebuilds_both_visual_reference_conditionings(self):
+        source = planned_shots({"ref_image_1": torch.zeros((1, 64, 64, 3))})
+
+        plan = motion.FL_MiniMaxH3ShotMotionContext.execute(source, "5", 22).result[0]
+
+        shot = plan["shots"][1]
+        self.assertIn("reference_free_conditioning", shot)
+        self.assertEqual(
+            shot["timeline"]["conditioning_groups"][0]["section_indices"],
+            shot["timeline"]["reference_free_conditioning_groups"][0]["section_indices"],
+        )
 
 
 class RuntimePatchTests(unittest.TestCase):
@@ -313,6 +326,35 @@ class ContextConditioningTests(unittest.TestCase):
         self.assertTrue(torch.equal(vae.encoded[:, 0, 0, 0], torch.arange(49, 54)))
         self.assertEqual(vae.decode_shapes, [(1, 24, 12, 4, 4)])
         self.assertNotIn("minimax_keyframes", conditioning[0][1])
+
+    def test_shared_motion_context_is_prepared_once_for_both_reference_paths(self):
+        previous = nested_latent()
+        conditionings = [
+            [[torch.zeros((1, 1, 1)), {"path": "selected"}]],
+            [[torch.zeros((1, 1, 1)), {"path": "visual-off"}]],
+        ]
+        source = {"authored_frames": 54}
+        target = {
+            "render_frames": 73,
+            "motion_context": {
+                "video_frames": 5,
+                "audio_frames": 22,
+            },
+        }
+        vae = FakeVideoVAE()
+
+        resolved = runtime.apply_previous_shot_contexts(
+            conditionings,
+            previous,
+            source,
+            target,
+            vae,
+        )
+
+        self.assertEqual(vae.decode_shapes, [(1, 24, 12, 4, 4)])
+        self.assertEqual([value[0][1]["path"] for value in resolved], ["selected", "visual-off"])
+        self.assertTrue(all("minimax_keyframes" in value[0][1] for value in resolved))
+        self.assertTrue(all("minimax_refs" in value[0][1] for value in resolved))
 
 
 class MotionContextConsumerTests(unittest.TestCase):

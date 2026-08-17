@@ -58,8 +58,9 @@ def _visible_frames(latent, vae, metadata):
         )
 
     authored_frames = metadata.get("authored_frames")
+    reshot = metadata.get("reshot") or {}
     motion_context = metadata.get("motion_context") or {}
-    trim_frames = motion_context.get("trim_frames", 0)
+    trim_frames = reshot.get("selection_offset", motion_context.get("trim_frames", 0))
     if not isinstance(authored_frames, int) or authored_frames <= 0:
         raise ValueError("the completed render has an invalid authored frame count")
     if not isinstance(trim_frames, int) or trim_frames < 0:

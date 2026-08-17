@@ -253,15 +253,15 @@ def _audio_reference(previous, authored_frames, trim_frames, audio_frames, video
     }
 
 
-def apply_previous_shot_context(conditioning, previous, source_shot, target_shot, vae):
+def apply_previous_shot_contexts(conditionings, previous, source_shot, target_shot, vae):
     context = target_shot.get("motion_context")
     if not isinstance(context, dict):
-        return conditioning
+        return conditionings
 
     video_frames = context.get("video_frames", 0)
     audio_frames = context.get("audio_frames", 0)
     if not video_frames and not audio_frames:
-        return conditioning
+        return conditionings
 
     source_context = source_shot.get("motion_context") or {}
     trim_frames = source_context.get("trim_frames", 0)
@@ -289,15 +289,28 @@ def apply_previous_shot_context(conditioning, previous, source_shot, target_shot
             video_frames,
         )
 
-    resolved = []
-    for entry in conditioning:
-        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
-            raise TypeError("FL MiniMax H3 motion context received invalid conditioning.")
-        metadata = entry[1].copy()
-        if keyframes:
-            metadata["minimax_keyframes"] = list(metadata.get("minimax_keyframes") or ()) + keyframes
-            metadata["minimax_frame_count"] = target_shot["render_frames"]
-        if audio_ref is not None:
-            metadata["minimax_refs"] = list(metadata.get("minimax_refs") or ()) + [audio_ref]
-        resolved.append([entry[0], metadata])
-    return resolved
+    resolved_conditionings = []
+    for conditioning in conditionings:
+        resolved = []
+        for entry in conditioning:
+            if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+                raise TypeError("FL MiniMax H3 motion context received invalid conditioning.")
+            metadata = entry[1].copy()
+            if keyframes:
+                metadata["minimax_keyframes"] = list(metadata.get("minimax_keyframes") or ()) + keyframes
+                metadata["minimax_frame_count"] = target_shot["render_frames"]
+            if audio_ref is not None:
+                metadata["minimax_refs"] = list(metadata.get("minimax_refs") or ()) + [audio_ref]
+            resolved.append([entry[0], metadata])
+        resolved_conditionings.append(resolved)
+    return resolved_conditionings
+
+
+def apply_previous_shot_context(conditioning, previous, source_shot, target_shot, vae):
+    return apply_previous_shot_contexts(
+        [conditioning],
+        previous,
+        source_shot,
+        target_shot,
+        vae,
+    )[0]

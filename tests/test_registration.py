@@ -25,11 +25,13 @@ EXPECTED_NODES = {
     "FL_MiniMaxH3BeatUpscaleKSampler",
     "FL_MiniMaxH3LatentUpscale",
     "FL_MiniMaxH3ShotAssembler",
+    "FL_MiniMaxH3TemporalReshotPlanner",
+    "FL_MiniMaxH3TemporalReshotAssembler",
 }
 
 
 class RegistrationTests(unittest.TestCase):
-    def test_pack_registers_only_the_eight_minimax_nodes(self):
+    def test_pack_registers_only_the_ten_minimax_nodes(self):
         self.assertEqual(set(package.NODE_CLASS_MAPPINGS), EXPECTED_NODES)
         self.assertEqual(set(package.NODE_DISPLAY_NAME_MAPPINGS), EXPECTED_NODES)
 
@@ -39,9 +41,15 @@ class RegistrationTests(unittest.TestCase):
             self.assertEqual(schema.node_id, node_id)
             self.assertTrue(schema.category.startswith("FL/MiniMax H3/"))
 
-    def test_pack_serves_the_sampler_preview_extension(self):
+    def test_pack_serves_the_web_extensions(self):
         self.assertEqual(package.WEB_DIRECTORY, "./web")
         self.assertTrue((ROOT / "web" / "FL_MiniMaxH3BeatSamplerPreview.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshot.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotMath.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotModal.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotEditor.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotState.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotStyles.js").is_file())
 
 
 if __name__ == "__main__":

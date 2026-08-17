@@ -113,6 +113,24 @@ class LivePreviewHelperTests(unittest.TestCase):
         self.assertEqual(result["subfolder"], preview.PREVIEW_SUBFOLDER)
         self.assertEqual(saved_video.options["crf"], 30)
 
+    def test_reshot_preview_starts_at_the_selected_source_offset(self):
+        latent = nested_latent()
+        metadata = latent["fl_h3_shot"]
+        metadata["authored_frames"] = 2
+        metadata["reshot"] = {"selection_offset": 3}
+        saved_video = SavedVideo()
+        with (
+            tempfile.TemporaryDirectory() as temp_directory,
+            mock.patch.object(preview.folder_paths, "get_temp_directory", return_value=temp_directory),
+            mock.patch.object(preview.InputImpl, "VideoFromComponents", return_value=saved_video) as create_video,
+        ):
+            preview.create_preview(latent, PreviewVAE(), metadata, "sample", 0, 80)
+
+        images = create_video.call_args.args[0].images
+        self.assertEqual(images.shape[0], 2)
+        self.assertTrue(torch.all(images[0] == 3))
+        self.assertTrue(torch.all(images[1] == 4))
+
     def test_preview_failure_is_reported_without_raising(self):
         with (
             mock.patch.object(preview, "create_preview", side_effect=RuntimeError("encoder failed")),
