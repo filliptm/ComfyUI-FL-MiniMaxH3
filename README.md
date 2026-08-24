@@ -19,26 +19,113 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 - **Shot assembly** - Decode and concatenate planned renders in timeline order
 - **Workflow compatibility** - Keeps the original Fill Nodes node IDs, sockets, custom types, and metadata
 
-## Nodes
+## Node reference
 
-| Node | Description |
-|------|-------------|
-| **FL MiniMax H3 Prompt Timeline** | Builds native H3 video/audio latents and strict temporal conditioning from a manual or connected prompt schedule |
-| **FL MiniMax H3 Apply Timeline** | Rebuilds the strict temporal conditioning after an H3 latent has been spatially resized |
-| **FL MiniMax H3 Beat Shot Planner** | Converts a beat prompt schedule into grouped or independent H3 render plans with matching audio slices; schedule and audio are optional, and without a schedule it plans one full-length render and exposes its latent and conditioning for a standard sampler |
-| **FL MiniMax H3 Shot Motion Context** | Adds adjustable previous-render video/audio context and per-render overrides while preserving hard cuts |
-| **FL MiniMax H3 Beat KSampler** | Samples every planned H3 render and returns editable nested latents |
-| **FL MiniMax H3 Latent Upscale** | Spatially upscales the H3 video latent while preserving time, audio, and shot metadata |
-| **FL MiniMax H3 Beat Pixel Upscale KSampler** | Decodes each render to pixels, resizes proportionally, re-encodes, and refines over a configurable sampling-step window |
-| **FL MiniMax H3 Shot Assembler** | Decodes and concatenates completed render latents into one image sequence |
-| **FL MiniMax H3 Temporal Reshot Planner** | Opens a dedicated source-library and timeline editor, then builds a source-anchored full-frame temporal inpaint plan from the selected interval |
-| **FL MiniMax H3 Temporal Reshot Assembler** | Splices the sampled interval into the original video while preserving outside frames, source audio, frame rate, metadata, alpha, and bit depth |
+### Prompting and planning
+
+#### FL MiniMax H3 Prompt Timeline
+
+![FL MiniMax H3 Prompt Timeline](docs/images/nodes/prompt-timeline.png)
+
+Creates the native nested H3 video/audio latent and its prompt conditioning. Use a manual timeline or connect an exact `FL_PROMPT_SCHEDULE`; a connected schedule takes precedence. Optional prompt envelopes and H3 image, video, soundtrack, and audio references are encoded into the same reusable timeline.
+
+- **Important inputs:** H3 text encoder, video VAE, audio VAE, global prompt, manual or connected timeline, output dimensions and length, transition controls, reactive envelopes, and references.
+- **Outputs:** strict `scheduled` conditioning for the first pass, native `latent`, fast `semantic` conditioning for refinement, and the reusable encoded `timeline`.
+
+#### FL MiniMax H3 Apply Timeline
+
+![FL MiniMax H3 Apply Timeline](docs/images/nodes/apply-timeline.png)
+
+Rebuilds strict time-masked conditioning for an H3 latent whose spatial dimensions changed while its video and audio duration stayed the same. This is the bridge between **Latent Upscale** and a second standard sampler pass.
+
+- **Inputs:** an encoded H3 `timeline` and the resized nested `latent`.
+- **Output:** rebuilt `scheduled` conditioning at the latent's new spatial dimensions.
+
+#### FL MiniMax H3 Beat Shot Planner
+
+![FL MiniMax H3 Beat Shot Planner](docs/images/nodes/beat-shot-planner.png)
+
+Converts an exact 24 fps beat prompt schedule into grouped or independent H3 render units and slices the matching timeline audio for each render. Without a connected schedule it plans one continuous render, making the node usable as a compact alternative to Prompt Timeline.
+
+- **Important inputs:** H3 encoders, optional schedule and aligned audio, global prompt prefix and suffix, dimensions, audio-mask policy, visual-reference mode, reference strength and fidelity, reactive envelopes, and references.
+- **Outputs:** the complete `shot_plan` plus the first render's `scheduled`, `latent`, and `semantic` values for standard-sampler workflows.
+
+#### FL MiniMax H3 Shot Motion Context
+
+![FL MiniMax H3 Shot Motion Context](docs/images/nodes/shot-motion-context.png)
+
+Carries a configurable authored video and audio tail from each completed render into the next render as hidden conditioning. The assembler removes that prefix, so visible shot boundaries remain hard cuts.
+
+- **Inputs:** a `shot_plan`, an H3-native video context window, audio context measured on the 24 fps timeline, and optional per-render overrides such as `3: 22, 39`.
+- **Output:** a metadata-preserving motion-context `shot_plan` for every downstream beat sampler.
+
+### Sampling and refinement
+
+#### FL MiniMax H3 Beat KSampler
+
+![FL MiniMax H3 Beat KSampler](docs/images/nodes/beat-ksampler.png)
+
+Samples every planned H3 render independently with fixed or incrementing seeds. The embedded dashboard follows live latent previews and can optionally decode a silent MP4 after each completed render.
+
+- **Inputs:** H3 model, exact `shot_plan`, seed policy, sampler settings, and an optional video VAE required by visual motion context or completed-render previews.
+- **Output:** one editable native H3 `latent` per planned render as a ComfyUI list output.
+
+#### FL MiniMax H3 Beat Pixel Upscale KSampler
+
+![FL MiniMax H3 Beat Pixel Upscale KSampler](docs/images/nodes/beat-pixel-upscale-ksampler.png)
+
+Processes each planned render through a video-VAE round trip: decode to pixels, resize proportionally, re-encode, rebuild conditioning, and sample only the configured portion of the refinement schedule. Audio and shot metadata are preserved.
+
+- **Inputs:** H3 model, the exact source `shot_plan`, sampled latent list, video VAE, target long side, interpolation method, seed policy, and total/start/end sampling steps.
+- **Output:** refined native H3 `latent` values ready for assembly or another metadata-preserving latent operation.
+
+### Latent and output utilities
+
+#### FL MiniMax H3 Latent Upscale
+
+![FL MiniMax H3 Latent Upscale](docs/images/nodes/latent-upscale.png)
+
+Interpolates only the spatial dimensions of the H3 video latent without decoding it. Temporal length, audio latent, noise masks, shot boundaries, reshot data, and other metadata are retained.
+
+- **Inputs:** a native nested H3 `latent`, target pixel long side, and latent interpolation method.
+- **Output:** spatially enlarged H3 `latent`. Use **Apply Timeline** before a refinement sampler.
+
+#### FL MiniMax H3 Shot Assembler
+
+![FL MiniMax H3 Shot Assembler](docs/images/nodes/shot-assembler.png)
+
+Decodes planned render latents separately, removes H3 padding and hidden motion-context prefixes, validates their timeline metadata, and concatenates the authored frames in order.
+
+- **Inputs:** the complete H3 latent list and the H3 video VAE.
+- **Output:** one `images` batch with hard cuts at the authored shot boundaries.
+
+### Temporal reshooting
+
+#### FL MiniMax H3 Temporal Reshot Planner
+
+![FL MiniMax H3 Temporal Reshot Planner](docs/images/nodes/temporal-reshot-planner.png)
+
+Normalizes a local source video to a 24 fps editing timeline and builds one source-anchored full-frame temporal inpaint plan. The compact node previews the selected range; the editor provides source browsing, exact frame controls, context handles, H3 alignment diagnostics, prompting, and reference sizing.
+
+- **Inputs:** H3 text encoder and video VAE, local source video, replacement prompt, optional audio VAE, and optional reference images.
+- **Output:** a one-render `shot_plan` with the source fingerprint, protected surrounding latent, replacement mask, context, and assembly metadata.
+
+![FL MiniMax H3 Temporal Reshot Editor](docs/images/temporal-reshot-editor.png)
+
+#### FL MiniMax H3 Temporal Reshot Assembler
+
+![FL MiniMax H3 Temporal Reshot Assembler](docs/images/nodes/temporal-reshot-assembler.png)
+
+Decodes the sampled replacement, extracts the exact authored interval, and splices it into the original source. Frames outside the selection remain unchanged, and source audio, frame rate, metadata, alpha, and bit depth are retained.
+
+- **Inputs:** the exact planner `shot_plan`, sampled H3 `latent`, and H3 video VAE.
+- **Output:** a native ComfyUI `video` ready for **Save Video**.
 
 ## Installation
 
 ### ComfyUI Manager
 
-Search for **FL MiniMax H3** and install the pack after it is available in the Comfy Registry.
+Search for **FL MiniMax H3** and install the pack from the Comfy Registry.
 
 ### Manual
 
@@ -49,9 +136,13 @@ git clone https://github.com/filliptm/ComfyUI-FL-MiniMaxH3.git
 
 Restart ComfyUI after installation.
 
-## Example workflow
+## Example workflows
 
-`example_workflows/MiniMax H3 Beat Shot Music Video.json` contains the complete beat-scheduled planning, sampling, pixel-upscale, and assembly path used during development. Replace its image, audio, and model selections with files available in your ComfyUI installation.
+- [MiniMax H3 Manual Timeline](<example_workflows/MiniMax H3 Manual Timeline.json>) uses current ComfyUI and this pack. It demonstrates Prompt Timeline, native latent upscale, Apply Timeline, standard H3 sampling, video/audio decode, and Save Video.
+- [MiniMax H3 Beat Scheduled](<example_workflows/MiniMax H3 Beat Scheduled.json>) adds [ComfyUI Fill Nodes](https://github.com/filliptm/ComfyUI_Fill-Nodes) for audio analysis and demonstrates beat planning, hard-cut motion context, independent sampling, pixel refinement, assembly, and final audio muxing.
+- [MiniMax H3 Temporal Reshot](<example_workflows/MiniMax H3 Temporal Reshot.json>) uses current ComfyUI and this pack. Choose a local source in the planner, sample the replacement, and pass it to the source-preserving assembler.
+
+The workflows contain portable output prefixes and no source media. Replace their model selections with compatible files available in your ComfyUI installation.
 
 ## Required ComfyUI support
 
@@ -202,12 +293,13 @@ The first Beat KSampler finishes its complete latent list before downstream node
 
 - **length** - Requested video frame count at H3's fixed 24 FPS
 - **affect_audio** - Apply scheduled text masks to video only or to video and audio tokens
-- **schedule_policy** - Reject, clamp, or fit schedule ranges that exceed the aligned H3 duration
+- **duration_policy** - Reject, clamp, or fit schedule ranges that exceed the aligned H3 duration
 - **ref_image_size** - Match the output canvas or allow H3's maximum reference area
+- **global_prompt_suffix** - Append persistent trailing prompt sections after every scheduled and reactive prompt
 - **target_long_side** - Pixel long side used by either upscale path; must be divisible by 32
 - **video_context_frames / audio_context_frames** - Previous authored material used to guide each next hard-cut render
 - **steps / start_at_step / end_at_step** - Total refinement schedule and the explicit portion sampled after the pixel resize and VAE round trip
-- **seed_stride** - Deterministic seed offset between planned renders
+- **seed_mode** - Increment the base seed per planned render or keep it fixed
 
 ## Migration from Fill Nodes
 
