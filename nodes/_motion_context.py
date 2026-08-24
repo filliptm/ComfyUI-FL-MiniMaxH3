@@ -127,7 +127,6 @@ def _prepare_payload(payload, cross_attn, latent_shapes):
             *signature,
             keyframes=resolved_keyframes,
             refs=refs,
-            frame_count=payload.get("frame_count"),
         )
         payload["layout"] = layout
 

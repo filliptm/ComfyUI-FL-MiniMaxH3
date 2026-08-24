@@ -237,7 +237,7 @@ class RuntimePatchTests(unittest.TestCase):
             "refs": refs,
             "frame_count": 22,
             "layout": minimax_model.PackedLayout(
-                7, 7, 4, 4, 16, keyframes=keyframes, refs=refs, frame_count=22
+                7, 7, 4, 4, 16, keyframes=keyframes, refs=refs
             ),
         }
 

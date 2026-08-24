@@ -1,5 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+import { addCanvasNavigation } from "./canvas_navigation.js";
 
 const EVENT_NAME = "fl_minimax_h3_live_preview";
 const MIN_PANEL_HEIGHT = 310;
@@ -650,6 +651,7 @@ app.registerExtension({
     container.style.minHeight = `${MIN_PANEL_HEIGHT}px`;
     container.style.overflow = "hidden";
     container.style.width = "100%";
+    addCanvasNavigation(container, app.canvas);
     const domWidget = node.addDOMWidget(
       "fl_h3_live_preview",
       "fl-h3-live-preview",

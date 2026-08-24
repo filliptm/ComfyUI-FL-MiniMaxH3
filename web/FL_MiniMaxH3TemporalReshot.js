@@ -11,11 +11,13 @@ import {
   readReshotSettings,
 } from "./FL_MiniMaxH3TemporalReshotState.js";
 import { injectTemporalReshotStyles } from "./FL_MiniMaxH3TemporalReshotStyles.js";
+import { addCanvasNavigation } from "./canvas_navigation.js";
 
 
 const NODE_ID = "FL_MiniMaxH3TemporalReshotPlanner";
 const COMPACT_WIDTH = 410;
 const COMPACT_PANEL_HEIGHT = 270;
+const COMPACT_NODE_HEIGHT = 430;
 
 function findWidget(node, name) {
   return (node.widgets || []).find((widget) => widget.name === name) || null;
@@ -32,13 +34,32 @@ function hideWidget(widget) {
   if (widget.element) widget.element.style.display = "none";
 }
 
+function removeVideoPreviewWidget(node) {
+  for (let index = (node.widgets?.length || 0) - 1; index >= 0; index -= 1) {
+    const widget = node.widgets[index];
+    if (widget.name !== "video-preview") continue;
+    widget.onRemove?.();
+    widget.element?.remove();
+    node.widgets.splice(index, 1);
+  }
+}
+
+function suppressVideoPreviewWidget(node) {
+  removeVideoPreviewWidget(node);
+  requestAnimationFrame(() => removeVideoPreviewWidget(node));
+  window.setTimeout(() => {
+    removeVideoPreviewWidget(node);
+    compactNode(node, false);
+  }, 250);
+}
+
 function compactNode(node, force = false) {
-  node.min_size = [360, 270];
+  node.min_size = [360, COMPACT_NODE_HEIGHT];
   requestAnimationFrame(() => {
     const computed = node.computeSize?.() || node.size;
     const width = force ? COMPACT_WIDTH : Math.max(360, Math.min(node.size[0], 500));
-    const height = Math.max(270, computed[1]);
-    if (force || node.size[0] > 500 || node.size[1] > height + 35) node.setSize([width, height]);
+    const height = Math.max(COMPACT_NODE_HEIGHT, computed[1]);
+    if (force || node.size[0] > 500 || node.size[1] < height || node.size[1] > height + 35) node.setSize([width, height]);
   });
 }
 
@@ -146,6 +167,7 @@ class TemporalReshotController {
   }
 
   syncCompact() {
+    suppressVideoPreviewWidget(this.node);
     const url = this.previewUrl();
     const current = this.compactVideo.dataset.source || "";
     if (url !== current) {
@@ -175,6 +197,7 @@ class TemporalReshotController {
     const values = this.widgets.video.options?.values;
     if (path && Array.isArray(values) && !values.includes(path)) values.push(path);
     setWidgetValue(this.widgets.video, path);
+    suppressVideoPreviewWidget(this.node);
     this.graphChanged();
     if (!path) {
       this.probeId += 1;
@@ -326,6 +349,7 @@ app.registerExtension({
     container.style.height = "100%";
     container.style.minHeight = `${COMPACT_PANEL_HEIGHT}px`;
     container.style.overflow = "hidden";
+    addCanvasNavigation(container, app.canvas);
     const domWidget = node.addDOMWidget("fl_h3_temporal_reshot_compact", "fl-h3-temporal-reshot-compact", container, {
       getMinHeight: () => COMPACT_PANEL_HEIGHT,
       hideOnZoom: false,
@@ -337,8 +361,12 @@ app.registerExtension({
     const originalOnConfigure = node.onConfigure;
     node.onConfigure = function (...args) {
       const result = originalOnConfigure?.apply(this, args);
+      suppressVideoPreviewWidget(this);
       controller.configure();
-      requestAnimationFrame(() => compactNode(this, false));
+      requestAnimationFrame(() => {
+        suppressVideoPreviewWidget(this);
+        compactNode(this, false);
+      });
       return result;
     };
     const originalOnConnectionsChange = node.onConnectionsChange;
