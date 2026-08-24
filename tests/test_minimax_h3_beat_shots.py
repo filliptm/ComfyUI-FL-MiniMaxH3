@@ -122,9 +122,7 @@ class ShotPlannerTests(unittest.TestCase):
         self.assertNotIn("sections_per_chunk", inputs)
         self.assertNotIn("individual_start_section", inputs)
         self.assertIn("prompt_envelopes", inputs)
-        self.assertIn("global_prompt_suffix", inputs)
-        self.assertTrue(inputs["global_prompt_suffix"].optional)
-        self.assertEqual(inputs["global_prompt_suffix"].default, "")
+        self.assertNotIn("global_prompt_suffix", inputs)
         fidelity = inputs["visual_condition_fidelity"]
         self.assertEqual((fidelity.default, fidelity.min, fidelity.max, fidelity.step), (1.0, 0.0, 1.0, 0.01))
         self.assertEqual(inputs["visual_reference_mode"].default, "full")
@@ -405,7 +403,7 @@ class ShotPlannerTests(unittest.TestCase):
         self.assertTrue(all(items[2] is refs[0][2] for items in refs))
         self.assertEqual(len({id(items[1]) for items in refs}), 4)
 
-    def test_prompt_suffix_follows_scheduled_and_envelope_prompts(self):
+    def test_global_prompt_prefixes_scheduled_and_envelope_prompts(self):
         clip = FakeClip()
         prompt_envelopes = {
             "type": "fl_prompt_envelope_set",
@@ -430,7 +428,6 @@ class ShotPlannerTests(unittest.TestCase):
                 "sample_rate": 24000,
             },
             global_prompt="Prompt prefix.",
-            global_prompt_suffix="Prompt suffix.",
             width=64,
             height=64,
             affect_audio="video only",
@@ -439,18 +436,18 @@ class ShotPlannerTests(unittest.TestCase):
         ).result[0]
 
         shot = plan["shots"][0]
-        self.assertEqual(shot["prompt"], "Prompt prefix.\n\nShot 1.\n\nPrompt suffix.")
+        self.assertEqual(shot["prompt"], "Prompt prefix.\n\nShot 1.")
         self.assertEqual(
             [group["prompt"] for group in shot["timeline"]["conditioning_groups"]],
-            ["Prompt prefix.\n\nShot 1.\n\nPrompt suffix."],
+            ["Prompt prefix.\n\nShot 1."],
         )
         self.assertEqual(
             [group["prompt"] for group in shot["timeline"]["prompt_envelope_groups"]],
-            ["Prompt prefix.\n\nBeat accent.\n\nPrompt suffix."],
+            ["Prompt prefix.\n\nBeat accent."],
         )
         self.assertEqual(
             shot["timeline"]["global_conditioning"][0][1]["prompt"],
-            "Prompt prefix.\n\nPrompt suffix.",
+            "Prompt prefix.",
         )
 
     def test_timeline_groups_build_arbitrary_shared_context_render_units(self):

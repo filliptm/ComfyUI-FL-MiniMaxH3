@@ -525,7 +525,7 @@
       ],
       "size": [
         400,
-        514
+        460
       ],
       "flags": {},
       "order": 5,
@@ -682,16 +682,6 @@
             "name": "reference_strength"
           },
           "link": null
-        },
-        {
-          "localized_name": "global_prompt_suffix",
-          "name": "global_prompt_suffix",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "global_prompt_suffix"
-          },
-          "link": null
         }
       ],
       "outputs": [
@@ -738,8 +728,7 @@
         "match",
         1,
         "full",
-        1,
-        "Natural ambience and synchronized sound."
+        1
       ],
       "widgets_values_named": {
         "length": 124,
@@ -750,8 +739,7 @@
         "ref_image_size": "match",
         "visual_condition_fidelity": 1,
         "visual_reference_mode": "full",
-        "reference_strength": 1,
-        "global_prompt_suffix": "Natural ambience and synchronized sound."
+        "reference_strength": 1
       },
       "color": "#16727c",
       "bgcolor": "#4F0074"

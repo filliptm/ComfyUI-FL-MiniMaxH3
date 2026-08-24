@@ -47,7 +47,7 @@ Rebuilds strict time-masked conditioning for an H3 latent whose spatial dimensio
 
 Converts an exact 24 fps beat prompt schedule into grouped or independent H3 render units and slices the matching timeline audio for each render. Without a connected schedule it plans one continuous render, making the node usable as a compact alternative to Prompt Timeline.
 
-- **Important inputs:** H3 encoders, optional schedule and aligned audio, global prompt prefix and suffix, dimensions, audio-mask policy, visual-reference mode, reference strength and fidelity, reactive envelopes, and references.
+- **Important inputs:** H3 encoders, optional schedule and aligned audio, global prompt, dimensions, audio-mask policy, visual-reference mode, reference strength and fidelity, reactive envelopes, and references.
 - **Outputs:** the complete `shot_plan` plus the first render's `scheduled`, `latent`, and `semantic` values for standard-sampler workflows.
 
 #### FL MiniMax H3 Shot Motion Context
@@ -295,7 +295,6 @@ The first Beat KSampler finishes its complete latent list before downstream node
 - **affect_audio** - Apply scheduled text masks to video only or to video and audio tokens
 - **duration_policy** - Reject, clamp, or fit schedule ranges that exceed the aligned H3 duration
 - **ref_image_size** - Match the output canvas or allow H3's maximum reference area
-- **global_prompt_suffix** - Append persistent trailing prompt sections after every scheduled and reactive prompt
 - **target_long_side** - Pixel long side used by either upscale path; must be divisible by 32
 - **video_context_frames / audio_context_frames** - Previous authored material used to guide each next hard-cut render
 - **steps / start_at_step / end_at_step** - Total refinement schedule and the explicit portion sampled after the pixel resize and VAE round trip

@@ -418,8 +418,8 @@ def _format_time(seconds):
     return f"{minutes:02d}:{remainder:06.3f}"
 
 
-def _combine_prompt(*parts):
-    return "\n\n".join(part.strip() for part in parts if part and part.strip())
+def _combine_prompt(global_prompt, prompt):
+    return "\n\n".join(part for part in (global_prompt.strip(), prompt.strip()) if part)
 
 
 def _semantic_prompt(global_prompt, sections, prompt_envelopes=None):
@@ -774,11 +774,10 @@ def _conditioning_groups(
     ref_blocks,
     cache=None,
     visual_cond_noise_aug=None,
-    prompt_suffix="",
 ):
     groups = {}
     for index, section in enumerate(sections):
-        prompt = _combine_prompt(global_prompt, section["prompt"], prompt_suffix)
+        prompt = _combine_prompt(global_prompt, section["prompt"])
         group = groups.get(prompt)
         if group is None:
             group = {
@@ -806,11 +805,10 @@ def _prompt_envelope_groups(
     ref_blocks,
     cache=None,
     visual_cond_noise_aug=None,
-    prompt_suffix="",
 ):
     groups = {}
     for index, envelope in enumerate(prompt_envelopes):
-        prompt = _combine_prompt(global_prompt, envelope["prompt"], prompt_suffix)
+        prompt = _combine_prompt(global_prompt, envelope["prompt"])
         group = groups.get(prompt)
         if group is None:
             group = {
@@ -1630,17 +1628,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                         "both predictions while sampling."
                     ),
                 ),
-                io.String.Input(
-                    "global_prompt_suffix",
-                    optional=True,
-                    multiline=True,
-                    dynamic_prompts=True,
-                    default="",
-                    tooltip=(
-                        "Text appended after every scheduled prompt. Use it for trailing sections such "
-                        "as overall_soundscape and non_diegetic_music."
-                    ),
-                ),
                 FLPromptEnvelopeSet.Input(
                     "prompt_envelopes",
                     optional=True,
@@ -1738,7 +1725,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
         visual_condition_fidelity=1.0,
         visual_reference_mode="full",
         reference_strength=1.0,
-        global_prompt_suffix="",
         prompt_envelopes=None,
         ref_images=None,
         ref_videos=None,
@@ -1884,10 +1870,9 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 start_frame,
                 render_frames,
             )
-            base_prompt = _combine_prompt(global_prompt, global_prompt_suffix)
             global_conditioning = _encode_prompt(
                 clip,
-                base_prompt,
+                global_prompt.strip(),
                 ref_items,
                 ref_blocks,
                 conditioning_cache,
@@ -1903,7 +1888,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_blocks,
                 conditioning_cache,
                 visual_cond_noise_aug,
-                global_prompt_suffix,
             )
             prompt_envelope_groups = _prompt_envelope_groups(
                 clip,
@@ -1913,12 +1897,11 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 ref_blocks,
                 conditioning_cache,
                 visual_cond_noise_aug,
-                global_prompt_suffix,
             )
             if has_visual_references:
                 reference_free_global_conditioning = _encode_prompt(
                     clip,
-                    base_prompt,
+                    global_prompt.strip(),
                     reference_free_ref_items,
                     reference_free_ref_blocks,
                     conditioning_cache,
@@ -1932,7 +1915,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                     reference_free_ref_blocks,
                     conditioning_cache,
                     visual_cond_noise_aug,
-                    global_prompt_suffix,
                 )
                 reference_free_prompt_envelope_groups = _prompt_envelope_groups(
                     clip,
@@ -1942,7 +1924,6 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                     reference_free_ref_blocks,
                     conditioning_cache,
                     visual_cond_noise_aug,
-                    global_prompt_suffix,
                 )
             timeline = {
                 "type": "minimax_h3_prompt_timeline",
@@ -1978,12 +1959,11 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 "render_frames": render_frames,
                 "padding_frames": render_frames - authored_frames,
                 "prompt": (
-                    base_prompt
+                    global_prompt.strip()
                     if is_manual
                     else _combine_prompt(
                         global_prompt,
                         "\n\n".join(section["prompt"] for section in section_group),
-                        global_prompt_suffix,
                     )
                 ),
                 "timeline": timeline,
