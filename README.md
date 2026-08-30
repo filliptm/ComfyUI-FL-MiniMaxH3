@@ -1,3 +1,5 @@
+
+
 # FL MiniMax H3
 
 MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, beat-aligned render planning, full-frame temporal reshots, optional cross-shot motion context, grouped and independent shot sampling, native latent upscaling, pixel-space refinement, and final shot assembly while preserving MiniMax H3's nested video/audio latent format.
@@ -125,7 +127,7 @@ Decodes the sampled replacement, extracts the exact authored interval, and splic
 
 ### ComfyUI Manager
 
-Search for **FL MiniMax H3** and install the pack from the Comfy Registry.
+Search for **ComfyUI-FL-MiniMaxH3** and install the pack from the Comfy Registry.
 
 ### Manual
 
