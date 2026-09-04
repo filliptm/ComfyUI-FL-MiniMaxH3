@@ -84,8 +84,8 @@ test("MiniMax H3 panels pass wheel and canvas drag gestures to LiteGraph", () =>
   );
 });
 
-test("both MiniMax H3 DOM panels enable canvas navigation", async () => {
-  for (const filename of ["FL_MiniMaxH3BeatSamplerPreview.js", "FL_MiniMaxH3TemporalReshot.js"]) {
+test("MiniMax H3 DOM panels enable canvas navigation", async () => {
+  for (const filename of ["FL_MiniMaxH3BeatSamplerPreview.js", "FL_MiniMaxH3TemporalReshot.js", "FL_MiniMaxH3Transition.js"]) {
     const nodeSource = await readFile(new URL(filename, WEB_URL), "utf8");
     assert.match(nodeSource, /import \{ addCanvasNavigation \} from "\.\/canvas_navigation\.js";/);
     assert.match(nodeSource, /addCanvasNavigation\(container, app\.canvas\);/);

@@ -24,14 +24,20 @@ EXPECTED_NODES = {
     "FL_MiniMaxH3BeatKSampler",
     "FL_MiniMaxH3BeatUpscaleKSampler",
     "FL_MiniMaxH3LatentUpscale",
+    "FL_MiniMaxH3LatentUpscaleModelLoader",
+    "FL_MiniMaxH3NeuralLatentUpscale2D",
+    "FL_MiniMaxH3NeuralLatentUpscale3D",
     "FL_MiniMaxH3ShotAssembler",
     "FL_MiniMaxH3TemporalReshotPlanner",
     "FL_MiniMaxH3TemporalReshotAssembler",
+    "FL_MiniMaxH3TransitionPrep",
+    "FL_MiniMaxH3TransitionAssembler",
+    "FL_MiniMaxH3VDN",
 }
 
 
 class RegistrationTests(unittest.TestCase):
-    def test_pack_registers_only_the_ten_minimax_nodes(self):
+    def test_pack_registers_only_the_minimax_nodes(self):
         self.assertEqual(set(package.NODE_CLASS_MAPPINGS), EXPECTED_NODES)
         self.assertEqual(set(package.NODE_DISPLAY_NAME_MAPPINGS), EXPECTED_NODES)
 
@@ -50,6 +56,8 @@ class RegistrationTests(unittest.TestCase):
         self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotEditor.js").is_file())
         self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotState.js").is_file())
         self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TemporalReshotStyles.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3Transition.js").is_file())
+        self.assertTrue((ROOT / "web" / "FL_MiniMaxH3TransitionMath.js").is_file())
 
 
 if __name__ == "__main__":

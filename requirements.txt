@@ -1,1 +1,2 @@
 # Uses the MiniMax H3 implementation and runtime dependencies supplied by ComfyUI.
+huggingface_hub>=0.25.0

@@ -13,6 +13,7 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 - **Temporal reshots** - Move and resize a frame-exact interval on a source-video timeline, regenerate that entire span, and keep the rest of the clip intact
 - **Hard-cut motion context** - Condition each render on a configurable authored tail from the previous render without showing overlap frames
 - **Nested latent sampling** - Sample MiniMax H3 video and audio latents without flattening their native structure
+- **VDN-H3 acceleration** - Apply the trained Video Delta Attention branch without the unwanted turbo adapter
 - **Native latent upscaling** - Resize only video latent height and width without a VAE round trip
 - **Unified sampler previews** - Watch sampling progress and completed base or upscale renders in one embedded player
 - **Pixel-space refinement** - Decode, resize, re-encode, and refine through an explicit sampling-step window
@@ -61,6 +62,14 @@ Carries a configurable authored video and audio tail from each completed render 
 
 ### Sampling and refinement
 
+#### FL MiniMax H3 VDN
+
+Applies the official Stage-DMD-250 Video Delta Attention branch and its required Stage-B adapter to a native MiniMax H3 model. On first use, the node downloads only the branch, model specification, metadata, and default adapter into `models/vdn/stage-dmd-step-250`. The optional turbo adapter is neither downloaded nor applied. VDN weights stream through ComfyUI's model-management path to avoid keeping an additional persistent GPU copy.
+
+- **Inputs:** MiniMax H3 model and Stage-B adapter strength.
+- **Output:** cloned H3 model with grouped VDN hybrid attention.
+- **Download:** approximately 4.3 GiB from `OpenVDN/vdn-minimax-h3`, pinned to the tested revision.
+
 #### FL MiniMax H3 Beat KSampler
 
 ![FL MiniMax H3 Beat KSampler](docs/images/nodes/beat-ksampler.png)
@@ -89,6 +98,17 @@ Interpolates only the spatial dimensions of the H3 video latent without decoding
 
 - **Inputs:** a native nested H3 `latent`, target pixel long side, and latent interpolation method.
 - **Output:** spatially enlarged H3 `latent`. Use **Apply Timeline** before a refinement sampler.
+
+#### FL MiniMax H3 Neural Latent Upscale
+
+The model loader and 2D/3D nodes apply learned MiniMax H3 latent upscaler checkpoints from `models/latent_upscale_models`. The 2D node is the faster spatial path; the 3D node adds joint spatiotemporal processing, target-dimension and megapixel modes, alignment, and local temporal chunking. Both operate only on the 24-channel video stream while preserving the native audio tensor, metadata, duration, and resized nested noise mask.
+
+- **Loader:** select a compatible `.safetensors` or `.pth` checkpoint and Comfy-managed precision.
+- **2D:** set a 1×–4× spatial scale.
+- **3D:** choose scale, target pixel dimensions, or megapixels; use `temporal_chunk_size=32` for long clips or `0` for full context.
+- **Weights:** place a checkpoint from [LBH-123-AI/Minimax_h3_latent_Upscaler](https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler) in `ComfyUI/models/latent_upscale_models/`.
+
+These learned nodes save the H3 VAE decode/upscale/encode round trip, but a subsequent high-resolution refinement pass still has high-resolution VRAM requirements.
 
 #### FL MiniMax H3 Shot Assembler
 
@@ -269,6 +289,8 @@ Base KSampler
 
 Use `bislerp` as the general latent interpolation method. The existing Beat Pixel Upscale KSampler remains the VAE round-trip refinement path.
 
+For a learned upscale, use **FL MiniMax H3 Load Latent Upscaler** with either **Neural Latent Upscale 2D** or **3D**. The loader detects the checkpoint architecture and delegates loading/offloading to ComfyUI. Unlike the interpolation node, the neural variants normalize with H3's model-native per-channel statistics and reconstruct detail learned by the checkpoint. The audio half of the nested AV latent is never processed or replaced.
+
 ## Pixel upscale refinement
 
 **FL MiniMax H3 Beat Pixel Upscale KSampler** performs this sequence for each planned render:
@@ -316,10 +338,11 @@ Do not combine this pack with an older Fill Nodes release that still registers t
 
 - A current ComfyUI installation with MiniMax H3 support
 - MiniMax H3 model, text encoder, video VAE, and audio VAE files
+- `huggingface_hub` for the explicitly triggered VDN model download
 - Sufficient VRAM for the selected model, resolution, frame count, and reference media
 - ComfyUI Fill Nodes only when using its audio beat scheduler or audio-reactive envelope ecosystem
 
-No additional Python dependencies are installed by this pack.
+VDN downloads occur only when the VDN node is executed and required files are missing. The pack does not download the turbo adapter.
 
 ## License
 

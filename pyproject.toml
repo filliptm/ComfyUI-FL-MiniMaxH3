@@ -1,10 +1,10 @@
 [project]
 name = "ComfyUI-FL-MiniMaxH3"
 description = "MiniMax H3 prompt timelines, beat-planned sampling, temporal reshots, native latent upscaling, pixel-space refinement, and shot assembly for ComfyUI"
-version = "1.4.1"
+version = "1.5.0"
 license = {file = "LICENSE"}
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["huggingface_hub>=0.25.0"]
 
 [project.urls]
 Repository = "https://github.com/filliptm/ComfyUI-FL-MiniMaxH3"
