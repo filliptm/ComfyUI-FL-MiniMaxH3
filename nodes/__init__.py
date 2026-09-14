@@ -8,6 +8,8 @@ from .FL_MiniMaxH3PromptTimeline import (
     FL_MiniMaxH3PromptTimeline,
 )
 from .FL_MiniMaxH3LatentUpscale import FL_MiniMaxH3LatentUpscale
+from .FL_MiniMaxH3MotionRefine import FL_MiniMaxH3MotionRefine
+from .FL_MiniMaxH3LoraBlockLoader import FL_MiniMaxH3LoraBlockLoader
 from .FL_MiniMaxH3NeuralLatentUpscale import (
     FL_MiniMaxH3LatentUpscaleModelLoader,
     FL_MiniMaxH3NeuralLatentUpscale2D,
@@ -27,6 +29,8 @@ from .FL_MiniMaxH3VDN import FL_MiniMaxH3VDN
 
 
 __all__ = [
+    "FL_MiniMaxH3LoraBlockLoader",
+    "FL_MiniMaxH3MotionRefine",
     "FL_MiniMaxH3PromptTimeline",
     "FL_MiniMaxH3ApplyTimeline",
     "FL_MiniMaxH3BeatShotPlanner",

@@ -17,10 +17,58 @@ MiniMax H3 workflow nodes for ComfyUI. The pack adds strict prompt timelines, be
 - **Native latent upscaling** - Resize only video latent height and width without a VAE round trip
 - **Unified sampler previews** - Watch sampling progress and completed base or upscale renders in one embedded player
 - **Pixel-space refinement** - Decode, resize, re-encode, and refine through an explicit sampling-step window
+- **Motion refinement** - Temporarily stretch fast motion, optionally upscale, refine with overlapping contexts, and restore the source frame count
 - **Shot assembly** - Decode and concatenate planned renders in timeline order
 - **Workflow compatibility** - Keeps the original Fill Nodes node IDs, sockets, custom types, and metadata
 
 ## Node reference
+
+### FL MiniMax H3 LoRA Block Loader
+
+Connect `MODEL → LoRA Block Loader → sampler` and select an installed H3 LoRA. This node loads that adapter itself; do not also load the same file upstream unless you intend to stack it twice. Chain nodes to control multiple adapters independently.
+
+All multipliers default to **1**, matching ComfyUI's standard model-only LoRA loader. `strength_model` scales the whole adapter; `blocks_strength`, `refiner_strength`, and `other_strength` control the main transformer stack, token-refiner stack, and remaining targets. The token refiner is part of H3, not the external Qwen encoder. The connected model supplies the block counts.
+
+Use optional zero-based, inclusive overrides, one per line:
+
+```text
+blocks.0-9=0.5
+blocks.25=0
+refiner.0-1=0.8
+```
+
+An override replaces its group's multiplier. Effective strength is `strength_model × multiplier`; later rules win and `#` comments are allowed. Zero disables this adapter's contribution at that target; negative values invert it. Existing upstream patches are unchanged. `block_report` lists effective strengths and matched adapter targets, including blocks absent from a sparse LoRA. ComfyUI logs unmatched checkpoint keys.
+
+Start with all ones and change one range at a time using the same seed. Blocks do not have guaranteed “motion” or “style” roles. Selectively weakening a Turbo/distillation LoRA can break its low-step behavior. This node changes adapter weights, not the sampler or model architecture, and does not promise faster inference.
+
+### FL MiniMax H3 Motion Refine
+
+Start with the [example workflow](examples/FL-H3-Motion-Refine.json), which separates the cached baseline render from the compact refinement pass. Select your installed models and reference image before running.
+
+Connect a completed native H3 `latent`, its `positive` conditioning, the H3 `model`, video `vae`, and `audio_vae`. The node decodes the baseline, optionally enlarges it, stretches motion-heavy intervals, re-encodes video and stretched audio, runs partial denoising, and selects the original-clock frames from the result. It outputs only `images` and a `report`; keep the original soundtrack connected directly to Create Video at **24 fps**.
+
+This node requires [ComfyUI-MAINodes](https://github.com/matlowai/ComfyUI-MAINodes), including the `H3TimeSmear.plan` addition, and the companion ComfyUI H3 VAE methods `encode_h3_frame_sequence` and `decode_h3_selected`. These additions are part of the local streaming implementation, not assumed available in upstream releases. Other FL nodes still load without MAINodes.
+
+Preparation and sampling expand into two internal nodes cached by ComfyUI. Changing the refinement seed, steps, strength, sampler, scheduler, or audio strength can reuse preparation; changes to the source, VAEs, coverage or resize inputs invalidate it. Reuse depends on the active ComfyUI cache policy and is lost on restart or eviction. No persistent tensor cache is added.
+
+For a **planned latent list**, connect optional `shot_plan` to the exact plan used by Beat KSampler. With Shot Motion Context, connect its output to both samplers. Each shot gets its own preparation/sampling stages and conditioning from the plan; `positive` is unused in this mode. Seeds increment from the refinement seed by shot index. The node removes hidden prefixes and padding at recovery, then assembles one image batch with the authored frame count and hard cuts. Previous-shot references come from the original baseline renders, not earlier refined outputs. Hidden video prefixes remain un-stretched and protected from denoising.
+
+In shot-plan mode, optional `baseline_images` and `baseline_audio` refer to the **full assembled timeline**. Authored regions are sliced per shot; missing hidden/padded regions come from the rendered latent. Supplying baseline audio requires `audio_vae`, including with coverage off. Keep that original assembled soundtrack on the export path.
+
+Optional `baseline_images` and `baseline_audio` accept shared decodes of the **same source latent**, avoiding duplicate work in comparison workflows. Indexed encoding builds one native 17-frame input chunk at a time; selected decoding retains only the recovered frames after normal overlap blending. Both retain the original temporal computation and normalization. Full source images and expanded latents still occupy memory; this is not end-to-end video streaming.
+
+- `target_long_side`: **0** keeps the source dimensions; a larger multiple of 32 enables spatial upscaling. Temporal recovery never shrinks the requested spatial output.
+- `strength`: **0.50** runs 12 steps from the tail of a 25-step schedule, matching MAINodes injection rather than KSampler's denoise convention.
+- `motion_coverage`: **balanced**, **economical**, or **wide** use the oracle presets. **uniform** uses the advanced `max_hold`; **off** bypasses temporal stretching for a spatial-only benchmark.
+- `steps`: full schedule budget, not the number of executed refinement steps.
+- `context_budget`: **0** samples the whole expanded clip, matching the original workflow. A nonzero frame-equivalent budget snaps down to H3 windows, with static scheduling and pyramid fusion. The advanced overlap snaps to latent boundaries; a causal anchor can add one latent position. This reduces per-window model work, **not** full-clip latent, VAE, or host-memory allocations. It requires H3-aware multimodal context support in ComfyUI.
+- `seed`: fixed by default. Leave the baseline sampler outside this node so refinement changes can reuse its cached result.
+
+Advanced inputs also expose sampler/scheduler, overlap, audio strength (default **0.5**), short-tail expansion, and spatial resize method. The report gives frame counts, dimensions, actual steps, window count, preparation timings and current render timings. Cached preparation timings describe the original preparation, not time spent again. Timings are wall-clock stage measurements, not a CUDA kernel profile. Cancellation is checked between major stages and native VAE chunks; normal ComfyUI sampling progress/previews remain available.
+
+Without `shot_plan`, use **one independent shot** and connect `positive`. Ordinary H3 references remain reference material. Image-anchor times and FL H3 packed temporal conditioning masks are remapped onto the stretched clock, including masks at a new spatial size. Temporal masks are re-quantized onto H3's native grid, not made frame-independent. Timed video/audio guides, spatial conditioning masks, ControlNet/area conditioning, and temporal reshots remain unsupported. Hidden previous-shot context requires the matching shot plan. Source noise masks are not reused; shot-plan mode creates its own prefix protection. Single-shot output retains the native rendered frame count, including padding. Adaptive analysis requires at least 22 source frames; use uniform or off for shorter renders. Stretched clips have a minimum of 39 frames internally.
+
+For comparison, hold the baseline and refinement seed fixed and test coverage **off** versus **balanced**, first at source size and then at a larger target size. Exact recovery restores frame timing; it does not promise original pixels, recovered ground-truth detail, or flicker-free restoration. No adapter or new model weights are required.
 
 ### Prompting and planning
 

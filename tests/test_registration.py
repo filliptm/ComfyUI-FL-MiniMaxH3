@@ -17,6 +17,13 @@ SPEC.loader.exec_module(package)
 
 
 EXPECTED_NODES = {
+    "FL_MiniMaxH3ParallaxPrompts",
+    "FL_MiniMaxH3LoraBlockLoader",
+    "FL_MiniMaxH3MotionShot",
+    "FL_MiniMaxH3MotionCollect",
+    "FL_MiniMaxH3MotionPrepare",
+    "FL_MiniMaxH3MotionSample",
+    "FL_MiniMaxH3MotionRefine",
     "FL_MiniMaxH3PromptTimeline",
     "FL_MiniMaxH3ApplyTimeline",
     "FL_MiniMaxH3BeatShotPlanner",

@@ -285,6 +285,11 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
         progress = comfy.utils.ProgressBar(len(shots))
 
         for position, shot in enumerate(shots):
+            if position and shot.get("motion_context") and (
+                shot.get("reference_asset_ids") != shots[position - 1].get("reference_asset_ids")
+                or shot.get("reference_mode") != shots[position - 1].get("reference_mode")
+            ):
+                logging.warning("H3 render %s changes references while retaining prior-shot motion context; check continuity.", position + 1)
             shot_seed = seed if seed_mode == "fixed" else (seed + position) & _MAX_SEED
             if live_preview and vae is not None:
                 send_preview_event(
@@ -359,6 +364,8 @@ class FL_MiniMaxH3BeatKSampler(io.ComfyNode):
                 "total_frames": shot_plan["total_frames"],
                 "fps": shot_plan["fps"],
                 "seed": shot_seed,
+                "reference_asset_ids": list(shot.get("reference_asset_ids", [])),
+                "reference_mode": shot.get("reference_mode", "defaults"),
             }
             if isinstance(shot.get("motion_context"), dict):
                 latent["fl_h3_shot"]["motion_context"] = dict(shot["motion_context"])

@@ -112,6 +112,33 @@ class FakeAudioVAE:
 
 
 class ShotPlannerTests(unittest.TestCase):
+    def test_per_section_references_filter_before_encoding_and_keep_soundtrack(self):
+        prompt_schedule = schedule((0, 24, 48))
+        prompt_schedule["sections"][0].update(section_id="a", references={"mode": "custom", "asset_ids": ["selected"]})
+        prompt_schedule["sections"][1].update(section_id="b", references={"mode": "none", "asset_ids": []})
+        video_vae = FakeVideoVAE()
+        audio_vae = FakeAudioVAE()
+        clip = FakeClip()
+        audio = {"waveform": torch.zeros((1, 2, 48000)), "sample_rate": 24000}
+        library = {"version": 1, "assets": {
+            "selected": {"kind": "image", "value": torch.ones((1, 64, 64, 3))},
+            "unused": {"kind": "image", "value": torch.zeros((1, 64, 64, 3))},
+        }}
+        with mock.patch.object(timeline.minimax_h3, "adapt_canvas", return_value=(64, 64)):
+            plan = timeline.FL_MiniMaxH3BeatShotPlanner.execute(
+                clip=clip, vae=video_vae, audio_vae=audio_vae, global_prompt="A runner.", width=64, height=64,
+                affect_audio="video only", ref_image_size="match", prompt_schedule=prompt_schedule,
+                timeline_audio=audio, reference_library=library,
+                ref_images={"ref_image_0": torch.zeros((1, 64, 64, 3))},
+            ).result[0]
+        self.assertEqual(len(video_vae.encoded_images), 1)
+        self.assertTrue(torch.all(video_vae.encoded_images[0] == 1))
+        self.assertEqual(len(audio_vae.encoded_samples), 2)
+        self.assertEqual(plan["shots"][0]["reference_asset_ids"], ["selected"])
+        self.assertEqual(plan["shots"][1]["reference_mode"], "none")
+        self.assertFalse(plan["shots"][1]["has_visual_references"])
+        self.assertEqual(plan["shots"][0]["section_ids"], ["a"])
+
     def test_schema_uses_timeline_authored_groups_without_planner_mode_controls(self):
         inputs = {
             value.id: value

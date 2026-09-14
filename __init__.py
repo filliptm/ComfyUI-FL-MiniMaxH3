@@ -1,4 +1,6 @@
 from .nodes import (
+    FL_MiniMaxH3LoraBlockLoader,
+    FL_MiniMaxH3MotionRefine,
     FL_MiniMaxH3ApplyTimeline,
     FL_MiniMaxH3BeatKSampler,
     FL_MiniMaxH3BeatShotPlanner,
@@ -18,9 +20,19 @@ from .nodes import (
 )
 
 from . import routes as routes
+from .nodes.FL_MiniMaxH3ParallaxPrompts import FL_MiniMaxH3ParallaxPrompts
+from .nodes.FL_MiniMaxH3MotionRefine import FL_MiniMaxH3MotionPrepare, FL_MiniMaxH3MotionSample
+from .nodes._motion_refine_shots import FL_MiniMaxH3MotionShot, FL_MiniMaxH3MotionCollect
 
 
 NODE_CLASS_MAPPINGS = {
+    "FL_MiniMaxH3ParallaxPrompts": FL_MiniMaxH3ParallaxPrompts,
+    "FL_MiniMaxH3LoraBlockLoader": FL_MiniMaxH3LoraBlockLoader,
+    "FL_MiniMaxH3MotionShot": FL_MiniMaxH3MotionShot,
+    "FL_MiniMaxH3MotionCollect": FL_MiniMaxH3MotionCollect,
+    "FL_MiniMaxH3MotionPrepare": FL_MiniMaxH3MotionPrepare,
+    "FL_MiniMaxH3MotionSample": FL_MiniMaxH3MotionSample,
+    "FL_MiniMaxH3MotionRefine": FL_MiniMaxH3MotionRefine,
     "FL_MiniMaxH3PromptTimeline": FL_MiniMaxH3PromptTimeline,
     "FL_MiniMaxH3ApplyTimeline": FL_MiniMaxH3ApplyTimeline,
     "FL_MiniMaxH3BeatShotPlanner": FL_MiniMaxH3BeatShotPlanner,
@@ -40,6 +52,13 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "FL_MiniMaxH3ParallaxPrompts": "FL MiniMax H3 Parallax Prompts",
+    "FL_MiniMaxH3LoraBlockLoader": "FL MiniMax H3 LoRA Block Loader",
+    "FL_MiniMaxH3MotionShot": "FL MiniMax H3 Motion Shot (internal)",
+    "FL_MiniMaxH3MotionCollect": "FL MiniMax H3 Motion Collect (internal)",
+    "FL_MiniMaxH3MotionPrepare": "FL MiniMax H3 Motion Prepare (internal)",
+    "FL_MiniMaxH3MotionSample": "FL MiniMax H3 Motion Sample (internal)",
+    "FL_MiniMaxH3MotionRefine": "FL MiniMax H3 Motion Refine",
     "FL_MiniMaxH3PromptTimeline": "FL MiniMax H3 Prompt Timeline",
     "FL_MiniMaxH3ApplyTimeline": "FL MiniMax H3 Apply Timeline",
     "FL_MiniMaxH3BeatShotPlanner": "FL MiniMax H3 Beat Shot Planner",

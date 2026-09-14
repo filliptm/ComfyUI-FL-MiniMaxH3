@@ -1,0 +1,1960 @@
+{
+  "revision": 0,
+  "last_node_id": 9903,
+  "last_link_id": 10007,
+  "nodes": [
+    {
+      "id": 119,
+      "type": "VAELoader",
+      "pos": [
+        1540,
+        570
+      ],
+      "size": [
+        640,
+        100
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 0,
+          "links": [
+            4,
+            10004
+          ]
+        }
+      ],
+      "title": "H3 video VAE",
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "minimax_h3_video_vae_fp16.safetensors"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 120,
+      "type": "VAELoader",
+      "pos": [
+        1540,
+        760
+      ],
+      "size": [
+        640,
+        100
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 0,
+          "links": [
+            5,
+            32,
+            10005
+          ]
+        }
+      ],
+      "title": "H3 audio VAE",
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 127,
+      "type": "UNETLoader",
+      "pos": [
+        1540,
+        100
+      ],
+      "size": [
+        640,
+        130
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "unet_name",
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "weight_dtype",
+          "name": "weight_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "weight_dtype"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            2
+          ]
+        }
+      ],
+      "title": "H3 diffusion model",
+      "properties": {
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": [
+        "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "default"
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 128,
+      "type": "CLIPLoader",
+      "pos": [
+        1540,
+        320
+      ],
+      "size": [
+        640,
+        160
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "clip_name",
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "type",
+          "name": "type",
+          "type": "COMBO",
+          "widget": {
+            "name": "type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "device",
+          "name": "device",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "device"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "slot_index": 0,
+          "links": [
+            3
+          ]
+        }
+      ],
+      "title": "H3 text encoder | minimax",
+      "properties": {
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": [
+        "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "minimax",
+        "default"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 129,
+      "type": "RandomNoise",
+      "pos": [
+        760,
+        1630
+      ],
+      "size": [
+        640,
+        125
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "noise_seed",
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "NOISE",
+          "name": "NOISE",
+          "type": "NOISE",
+          "slot_index": 0,
+          "links": [
+            23
+          ]
+        }
+      ],
+      "title": "BASELINE seed | keep fixed",
+      "properties": {
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [
+        20260901,
+        "fixed"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 133,
+      "type": "PrimitiveFloat",
+      "pos": [
+        40,
+        870
+      ],
+      "size": [
+        600,
+        100
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "FLOAT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "FLOAT",
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "slot_index": 0,
+          "links": [
+            1
+          ]
+        }
+      ],
+      "title": "DURATION | seconds at 24 fps",
+      "properties": {
+        "Node name for S&R": "PrimitiveFloat"
+      },
+      "widgets_values": [
+        5
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 132,
+      "type": "ComfyMathExpression",
+      "pos": [
+        40,
+        1030
+      ],
+      "size": [
+        600,
+        130
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "values.a",
+          "name": "values.a",
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": 1
+        },
+        {
+          "label": "b",
+          "localized_name": "values.b",
+          "name": "values.b",
+          "shape": 7,
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": null
+        },
+        {
+          "localized_name": "expression",
+          "name": "expression",
+          "type": "STRING",
+          "widget": {
+            "name": "expression"
+          },
+          "link": null
+        },
+        {
+          "name": "values",
+          "type": "COMFY_AUTOGROW_V3",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "FLOAT",
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "slot_index": 0,
+          "links": []
+        },
+        {
+          "localized_name": "INT",
+          "name": "INT",
+          "type": "INT",
+          "slot_index": 1,
+          "links": [
+            8
+          ]
+        },
+        {
+          "localized_name": "BOOL",
+          "name": "BOOL",
+          "type": "BOOLEAN",
+          "slot_index": 2,
+          "links": []
+        }
+      ],
+      "title": "H3 frame count | snap up to 17n + 5",
+      "properties": {
+        "Node name for S&R": "ComfyMathExpression"
+      },
+      "widgets_values": [
+        "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 300,
+      "type": "PathchSageAttentionKJ",
+      "pos": [
+        2240,
+        100
+      ],
+      "size": [
+        620,
+        150
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        },
+        {
+          "localized_name": "sage_attention",
+          "name": "sage_attention",
+          "type": "COMBO",
+          "widget": {
+            "name": "sage_attention"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "allow_compile",
+          "name": "allow_compile",
+          "shape": 7,
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "allow_compile"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            17
+          ]
+        }
+      ],
+      "title": "Optional SageAttention backend",
+      "properties": {
+        "Node name for S&R": "PathchSageAttentionKJ"
+      },
+      "widgets_values": [
+        "auto",
+        false
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 301,
+      "type": "MiniMaxH3MemoryEfficientSageAttentionPatch",
+      "pos": [
+        2240,
+        340
+      ],
+      "size": [
+        620,
+        100
+      ],
+      "flags": {},
+      "order": 29,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            18
+          ]
+        }
+      ],
+      "title": "Optional H3 memory-efficient attention",
+      "properties": {
+        "Node name for S&R": "MiniMaxH3MemoryEfficientSageAttentionPatch"
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 302,
+      "type": "MiniMaxChunkFeedForward",
+      "pos": [
+        2240,
+        530
+      ],
+      "size": [
+        620,
+        170
+      ],
+      "flags": {},
+      "order": 31,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 18
+        },
+        {
+          "localized_name": "chunks",
+          "name": "chunks",
+          "type": "INT",
+          "widget": {
+            "name": "chunks"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seq_threshold",
+          "name": "seq_threshold",
+          "type": "INT",
+          "widget": {
+            "name": "seq_threshold"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            19,
+            20,
+            10001
+          ]
+        }
+      ],
+      "title": "Shared model | feed-forward chunking",
+      "properties": {
+        "Node name for S&R": "MiniMaxChunkFeedForward"
+      },
+      "widgets_values": [
+        2,
+        65536
+      ],
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 124,
+      "type": "BasicScheduler",
+      "pos": [
+        40,
+        2310
+      ],
+      "size": [
+        650,
+        160
+      ],
+      "flags": {},
+      "order": 32,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 19
+        },
+        {
+          "localized_name": "scheduler",
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "steps",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "denoise",
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "SIGMAS",
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "slot_index": 0,
+          "links": [
+            26
+          ]
+        }
+      ],
+      "title": "BASELINE | full simple schedule",
+      "properties": {
+        "Node name for S&R": "BasicScheduler"
+      },
+      "widgets_values": [
+        "simple",
+        25,
+        1
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 126,
+      "type": "BasicGuider",
+      "pos": [
+        760,
+        1830
+      ],
+      "size": [
+        640,
+        100
+      ],
+      "flags": {},
+      "order": 33,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 20
+        },
+        {
+          "localized_name": "conditioning",
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "GUIDER",
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "slot_index": 0,
+          "links": [
+            24
+          ]
+        }
+      ],
+      "title": "BASELINE guider",
+      "properties": {
+        "Node name for S&R": "BasicGuider"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 121,
+      "type": "VAEDecodeAudio",
+      "pos": [
+        2250,
+        1630
+      ],
+      "size": [
+        610,
+        100
+      ],
+      "flags": {},
+      "order": 37,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "samples",
+          "name": "samples",
+          "type": "LATENT",
+          "link": 31
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 32
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "AUDIO",
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "slot_index": 0,
+          "links": [
+            38
+          ]
+        }
+      ],
+      "title": "Original soundtrack | unchanged",
+      "properties": {
+        "Node name for S&R": "VAEDecodeAudio"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 130,
+      "type": "CreateVideo",
+      "pos": [
+        2250,
+        1810
+      ],
+      "size": [
+        610,
+        170
+      ],
+      "flags": {},
+      "order": 51,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 10006
+        },
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 38
+        },
+        {
+          "localized_name": "fps",
+          "name": "fps",
+          "type": "FLOAT",
+          "widget": {
+            "name": "fps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "bit_depth",
+          "name": "bit_depth",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "bit_depth"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "color_space",
+          "name": "color_space",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "color_space"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VIDEO",
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "slot_index": 0,
+          "links": [
+            41
+          ]
+        }
+      ],
+      "title": "Final video | 24 fps + original audio",
+      "properties": {
+        "Node name for S&R": "CreateVideo"
+      },
+      "widgets_values": [
+        24,
+        8,
+        "sRGB"
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 125,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        760,
+        2020
+      ],
+      "size": [
+        640,
+        720
+      ],
+      "flags": {},
+      "order": 36,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "noise",
+          "name": "noise",
+          "type": "NOISE",
+          "link": 23
+        },
+        {
+          "localized_name": "guider",
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 24
+        },
+        {
+          "localized_name": "sampler",
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 25
+        },
+        {
+          "localized_name": "sigmas",
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 26
+        },
+        {
+          "localized_name": "latent_image",
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 27
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "output",
+          "name": "output",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            31,
+            10003
+          ]
+        },
+        {
+          "localized_name": "denoised_output",
+          "name": "denoised_output",
+          "type": "LATENT",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "PASS 1 | generate the baseline",
+      "properties": {
+        "Node name for S&R": "SamplerCustomAdvanced"
+      },
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 234,
+      "type": "LoadImage",
+      "pos": [
+        40,
+        100
+      ],
+      "size": [
+        600,
+        450
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            9
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "slot_index": 1,
+          "links": []
+        }
+      ],
+      "title": "REFERENCE | your character image",
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "image_26.png",
+        "image"
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 115,
+      "type": "ResolutionSelector",
+      "pos": [
+        40,
+        640
+      ],
+      "size": [
+        600,
+        155
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "aspect_ratio",
+          "name": "aspect_ratio",
+          "type": "COMBO",
+          "widget": {
+            "name": "aspect_ratio"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "megapixels",
+          "name": "megapixels",
+          "type": "FLOAT",
+          "widget": {
+            "name": "megapixels"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "multiple",
+          "name": "multiple",
+          "type": "INT",
+          "widget": {
+            "name": "multiple"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "slot_index": 0,
+          "links": [
+            6
+          ]
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "slot_index": 1,
+          "links": [
+            7
+          ]
+        }
+      ],
+      "title": "BASELINE SIZE | aspect + megapixels",
+      "properties": {
+        "Node name for S&R": "ResolutionSelector"
+      },
+      "widgets_values": [
+        "1:1 (Square)",
+        0.5,
+        32
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 135,
+      "type": "KSamplerSelect",
+      "pos": [
+        40,
+        2550
+      ],
+      "size": [
+        650,
+        100
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "sampler_name",
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "SAMPLER",
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "slot_index": 0,
+          "links": [
+            25
+          ]
+        }
+      ],
+      "title": "BASELINE sampler",
+      "properties": {
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "res_multistep"
+      ],
+      "color": "#233",
+      "bgcolor": "#355"
+    },
+    {
+      "id": 131,
+      "type": "MiniMaxH3ReferenceToVideo",
+      "pos": [
+        40,
+        1630
+      ],
+      "size": [
+        650,
+        590
+      ],
+      "flags": {},
+      "order": 30,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 3
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 4
+        },
+        {
+          "localized_name": "audio_vae",
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": 5
+        },
+        {
+          "localized_name": "ref_images.ref_image_0",
+          "name": "ref_images.ref_image_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 9
+        },
+        {
+          "label": "ref_image_1",
+          "localized_name": "ref_images.ref_image_1",
+          "name": "ref_images.ref_image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_video_0",
+          "localized_name": "ref_videos.ref_video_0",
+          "name": "ref_videos.ref_video_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_video_audio_0",
+          "localized_name": "ref_video_audios.ref_video_audio_0",
+          "name": "ref_video_audios.ref_video_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "label": "ref_audio_0",
+          "localized_name": "ref_audios.ref_audio_0",
+          "name": "ref_audios.ref_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 80
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 6
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 7
+        },
+        {
+          "localized_name": "length",
+          "name": "length",
+          "type": "INT",
+          "widget": {
+            "name": "length"
+          },
+          "link": 8
+        },
+        {
+          "localized_name": "ref_image_size",
+          "name": "ref_image_size",
+          "type": "COMBO",
+          "widget": {
+            "name": "ref_image_size"
+          },
+          "link": null
+        },
+        {
+          "name": "ref_images",
+          "type": "COMFY_AUTOGROW_V3",
+          "link": null
+        },
+        {
+          "name": "ref_videos",
+          "type": "COMFY_AUTOGROW_V3",
+          "link": null
+        },
+        {
+          "name": "ref_video_audios",
+          "type": "COMFY_AUTOGROW_V3",
+          "link": null
+        },
+        {
+          "name": "ref_audios",
+          "type": "COMFY_AUTOGROW_V3",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "positive",
+          "name": "positive",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            21,
+            10002
+          ]
+        },
+        {
+          "localized_name": "LATENT",
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 1,
+          "links": [
+            27
+          ]
+        }
+      ],
+      "title": "Shared H3 conditioning + baseline latent",
+      "properties": {
+        "Node name for S&R": "MiniMaxH3ReferenceToVideo"
+      },
+      "widgets_values": [
+        "• subject_definitions:\n  <Subject 1> is the single adult male pirate shown from multiple angles in <Picture 1>: short\n  black hair, a red-and-gold tricorn hat, a long crimson coat with gold trim, a white shirt, dark\n  waistcoat and trousers, and tall brown boots. The reference sheet depicts ONE character, not\n  several people.\n  For this scene, he wears a sealed crimson-and-white spacesuit with gold trim, armored gloves,\n  heavy lunar boots and a clear domed helmet. His recognizable face and short black hair remain\n  visible through the visor. A red-and-gold tricorn emblem decorates his shoulder.\n  Two opposing adult players wear distinct cobalt-blue spacesuits with opaque gold visors.\n  All players carry compact sporting paintball markers, not lethal weapons.\n\n  summary:\n  [reference generation] An epic lunar paintball match in retro hand-drawn anime style.\n  <Subject 1> launches out of cover, fires a rapid volley during a low-gravity leap and skids\n  behind a lunar rover as brightly colored paintballs burst around him. Three cinematic action\n  shots connected by hard cuts on movement.\n\n  retention_analysis:\n  Preserve <Subject 1>'s recognizable face, hair and crimson-and-gold pirate identity from\n  <Picture 1>. Adapt his costume into a functional-looking spacesuit rather than placing loose\n  pirate clothing outside it. His helmet stays sealed and intact throughout. Translate the\n  scene into expressive late-1980s and early-1990s science-fiction cel-animation styling.\n  Keep the two blue-suited opponents visually distinct from the crimson-suited hero.\n\n  detailed_description:\n  A competitive paintball arena built across the lunar surface, with inflatable angular bunkers,\n  a parked exploration rover, low crater rims and scattered gray boulders. Earth hangs brilliantly\n  above the horizon against a black sky. Hard sunlight casts long, crisp shadows across pale\n  regolith. Saturated suit colors, richly painted science-fiction backgrounds, bold ink outlines,\n  flat cel shading and subtle film grain.\n\n  [Shot 1] Low medium-wide shot beside a gray boulder. <Subject 1> crouches behind cover with\n  both hands on his paintball marker. A rapid cluster of cyan paintballs strikes the exposed\n  rock beside him, leaving distinct bright splashes. He glances toward the rover, plants his\n  boots and pushes off into a powerful sideways leap. Fine lunar dust scatters from the launch\n  point in clean ballistic arcs. HARD CUT AS HIS BOOTS LEAVE THE GROUND.\n\n  [Shot 2] Dynamic side-tracking shot keeping his entire body visible. The pirate sails across\n  the gap in a long, low-gravity arc, knees tucked and torso turning toward the opposing bunker.\n  His movement is fast and committed, with extended airborne travel rather than slow-motion\n  playback. He braces the marker against his shoulder and fires three quick orange paintballs.\n  One strikes a blue-suited opponent squarely on the chest plate, leaving a vivid orange splat.\n  The opponent immediately raises one hand to signal elimination. HARD CUT AS THE PIRATE\n  EXTENDS HIS BOOTS FOR LANDING.\n\n  [Shot 3] Ground-level three-quarter shot beside the parked rover. The pirate lands on bent\n  knees and slides a short distance through loose regolith, keeping the marker pointed away\n  from his own body. His left glove catches the rover's lower frame to arrest the slide.\n  Cyan paintballs strike the rover's outer panel above him, adding fresh splashes without\n  damaging it. He pulls himself into a low crouch, peeks around the wheel and snaps the marker\n  back toward the remaining opponent. End with him poised to launch his next attack.\n\n  Fast, playful competition with readable aiming, clear glove-to-marker contact and coherent\n  body rotation. Keep the airborne trajectory smooth and the landing connected to the leap.\n  Paintballs remain small, discrete colored projectiles and burst only on contact. Paint marks\n  stay attached to the surfaces they hit. No bullets, blood, injuries or damaged pressure suits.\n\n  Maintain lunar physics: longer airborne arcs, reduced gravity and dust that falls without\n  billowing like atmospheric smoke. No wind-blown fabric or Earth-like clouds. Keep the helmet,\n  backpack, suit joints and marker consistent across shots.\n\n  Use dramatic science-fiction framing, sharp silhouettes and quick changes of pose while\n  keeping the pirate's face and hands readable. Avoid continuous body smearing, extra limbs,\n  floating equipment, glossy 3D rendering, photorealism, slow motion, split screens, captions\n  or text overlays.\n\n  overall_soundscape:\n  Subjective audio from inside the pirate's helmet: quick breathing, suit ventilation, muted\n  mechanical vibrations from his marker, a dull landing thump transmitted through the suit\n  and excited nonverbal radio reactions from teammates. Exterior lunar action remains silent\n  through the vacuum. No intelligible dialogue.\n\n  non_diegetic_music:\n  N/A\n",
+        1344,
+        768,
+        124,
+        "match"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 92,
+      "type": "SaveVideo",
+      "pos": [
+        2250,
+        2070
+      ],
+      "size": [
+        610,
+        600
+      ],
+      "flags": {},
+      "order": 52,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "link": 41
+        },
+        {
+          "localized_name": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format",
+          "name": "format",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format.codec",
+          "name": "format.codec",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format.codec"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "codec",
+          "shape": 7,
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "codec"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "slot_index": 0,
+          "links": []
+        }
+      ],
+      "title": "SAVE | refined video",
+      "properties": {
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "FL_H3/MotionRefine",
+        "auto",
+        "auto",
+        "auto"
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9400,
+      "type": "PrimitiveNode",
+      "pos": [
+        720,
+        100
+      ],
+      "size": [
+        680,
+        1000
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "links": [
+            80
+          ]
+        }
+      ],
+      "title": "PROMPT | shared with refinement",
+      "properties": {
+        "Run widget replace on values": false
+      },
+      "widgets_values": [
+        "• subject_definitions:\n  <Subject 1> is the single adult male pirate shown from multiple angles in <Picture 1>: short\n  black hair, a red-and-gold tricorn hat, a long crimson coat with gold trim, a white shirt, dark\n  waistcoat and trousers, and tall brown boots. The reference sheet depicts ONE character, not\n  several people.\n  For this scene, he wears a sealed crimson-and-white spacesuit with gold trim, armored gloves,\n  heavy lunar boots and a clear domed helmet. His recognizable face and short black hair remain\n  visible through the visor. A red-and-gold tricorn emblem decorates his shoulder.\n  Two opposing adult players wear distinct cobalt-blue spacesuits with opaque gold visors.\n  All players carry compact sporting paintball markers, not lethal weapons.\n\n  summary:\n  [reference generation] An epic lunar paintball match in retro hand-drawn anime style.\n  <Subject 1> launches out of cover, fires a rapid volley during a low-gravity leap and skids\n  behind a lunar rover as brightly colored paintballs burst around him. Three cinematic action\n  shots connected by hard cuts on movement.\n\n  retention_analysis:\n  Preserve <Subject 1>'s recognizable face, hair and crimson-and-gold pirate identity from\n  <Picture 1>. Adapt his costume into a functional-looking spacesuit rather than placing loose\n  pirate clothing outside it. His helmet stays sealed and intact throughout. Translate the\n  scene into expressive late-1980s and early-1990s science-fiction cel-animation styling.\n  Keep the two blue-suited opponents visually distinct from the crimson-suited hero.\n\n  detailed_description:\n  A competitive paintball arena built across the lunar surface, with inflatable angular bunkers,\n  a parked exploration rover, low crater rims and scattered gray boulders. Earth hangs brilliantly\n  above the horizon against a black sky. Hard sunlight casts long, crisp shadows across pale\n  regolith. Saturated suit colors, richly painted science-fiction backgrounds, bold ink outlines,\n  flat cel shading and subtle film grain.\n\n  [Shot 1] Low medium-wide shot beside a gray boulder. <Subject 1> crouches behind cover with\n  both hands on his paintball marker. A rapid cluster of cyan paintballs strikes the exposed\n  rock beside him, leaving distinct bright splashes. He glances toward the rover, plants his\n  boots and pushes off into a powerful sideways leap. Fine lunar dust scatters from the launch\n  point in clean ballistic arcs. HARD CUT AS HIS BOOTS LEAVE THE GROUND.\n\n  [Shot 2] Dynamic side-tracking shot keeping his entire body visible. The pirate sails across\n  the gap in a long, low-gravity arc, knees tucked and torso turning toward the opposing bunker.\n  His movement is fast and committed, with extended airborne travel rather than slow-motion\n  playback. He braces the marker against his shoulder and fires three quick orange paintballs.\n  One strikes a blue-suited opponent squarely on the chest plate, leaving a vivid orange splat.\n  The opponent immediately raises one hand to signal elimination. HARD CUT AS THE PIRATE\n  EXTENDS HIS BOOTS FOR LANDING.\n\n  [Shot 3] Ground-level three-quarter shot beside the parked rover. The pirate lands on bent\n  knees and slides a short distance through loose regolith, keeping the marker pointed away\n  from his own body. His left glove catches the rover's lower frame to arrest the slide.\n  Cyan paintballs strike the rover's outer panel above him, adding fresh splashes without\n  damaging it. He pulls himself into a low crouch, peeks around the wheel and snaps the marker\n  back toward the remaining opponent. End with him poised to launch his next attack.\n\n  Fast, playful competition with readable aiming, clear glove-to-marker contact and coherent\n  body rotation. Keep the airborne trajectory smooth and the landing connected to the leap.\n  Paintballs remain small, discrete colored projectiles and burst only on contact. Paint marks\n  stay attached to the surfaces they hit. No bullets, blood, injuries or damaged pressure suits.\n\n  Maintain lunar physics: longer airborne arcs, reduced gravity and dust that falls without\n  billowing like atmospheric smoke. No wind-blown fabric or Earth-like clouds. Keep the helmet,\n  backpack, suit joints and marker consistent across shots.\n\n  Use dramatic science-fiction framing, sharp silhouettes and quick changes of pose while\n  keeping the pirate's face and hands readable. Avoid continuous body smearing, extra limbs,\n  floating equipment, glossy 3D rendering, photorealism, slow motion, split screens, captions\n  or text overlays.\n\n  overall_soundscape:\n  Subjective audio from inside the pirate's helmet: quick breathing, suit ventilation, muted\n  mechanical vibrations from his marker, a dull landing thump transmitted through the suit\n  and excited nonverbal radio reactions from teammates. Exterior lunar action remains silent\n  through the vacuum. No intelligible dialogue.\n\n  non_diegetic_music:\n  N/A\n"
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 9900,
+      "type": "FL_MiniMaxH3MotionRefine",
+      "pos": [
+        1540,
+        1630
+      ],
+      "size": [
+        650,
+        560
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 10001
+        },
+        {
+          "localized_name": "positive",
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 10002
+        },
+        {
+          "localized_name": "latent",
+          "name": "latent",
+          "type": "LATENT",
+          "link": 10003
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 10004
+        },
+        {
+          "localized_name": "audio_vae",
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 10005
+        },
+        {
+          "localized_name": "target_long_side",
+          "name": "target_long_side",
+          "type": "INT",
+          "widget": {
+            "name": "target_long_side"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "strength",
+          "name": "strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "motion_coverage",
+          "name": "motion_coverage",
+          "type": "COMBO",
+          "widget": {
+            "name": "motion_coverage"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "steps",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "context_budget",
+          "name": "context_budget",
+          "type": "INT",
+          "widget": {
+            "name": "context_budget"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "seed",
+          "name": "seed",
+          "type": "INT",
+          "widget": {
+            "name": "seed"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "context_overlap",
+          "name": "context_overlap",
+          "type": "INT",
+          "widget": {
+            "name": "context_overlap"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "sampler_name",
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "scheduler",
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "max_hold",
+          "name": "max_hold",
+          "type": "INT",
+          "widget": {
+            "name": "max_hold"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "audio_strength",
+          "name": "audio_strength",
+          "type": "FLOAT",
+          "widget": {
+            "name": "audio_strength"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "expand_to_end",
+          "name": "expand_to_end",
+          "type": "BOOLEAN",
+          "widget": {
+            "name": "expand_to_end"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "upscale_method",
+          "name": "upscale_method",
+          "type": "COMBO",
+          "widget": {
+            "name": "upscale_method"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            10006
+          ]
+        },
+        {
+          "localized_name": "report",
+          "name": "report",
+          "type": "STRING",
+          "links": [
+            10007
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "FL_MiniMaxH3MotionRefine"
+      },
+      "widgets_values": [
+        0,
+        0.5,
+        "balanced",
+        25,
+        0,
+        20260902,
+        "fixed",
+        17,
+        "res_multistep",
+        "simple",
+        4,
+        0.5,
+        true,
+        "lanczos"
+      ],
+      "color": "#16727c",
+      "bgcolor": "#4F0074",
+      "title": "MOTION REFINE | stretch / upscale / restore"
+    },
+    {
+      "id": 9901,
+      "type": "PreviewAny",
+      "pos": [
+        1540,
+        2290
+      ],
+      "size": [
+        650,
+        360
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "source",
+          "name": "source",
+          "type": "*",
+          "link": 10007
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "PreviewAny"
+      },
+      "widgets_values": [],
+      "title": "REPORT | exact frame counts + work budget"
+    },
+    {
+      "id": 9902,
+      "type": "MarkdownNote",
+      "pos": [
+        40,
+        1200
+      ],
+      "size": [
+        1360,
+        225
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "text": "## FL H3 Motion Refine\n\nKeep the baseline sampler outside the refinement node so it can be cached. Start with target_long_side = 0, strength = 0.50 and balanced motion. Set a larger target long side to upscale; use coverage off for a spatial-only comparison.\n\nThe source prompt here contains hard cuts. For a cleaner motion benchmark, also test a single continuous shot. This node does not detect or split cuts.\n\nRequires current ComfyUI, ComfyUI-MAINodes and ComfyUI-KJNodes (the example's optional attention patches). Select your local model files and upload your own reference image."
+      },
+      "widgets_values": [
+        "## FL H3 Motion Refine\n\nKeep the baseline sampler outside the refinement node so it can be cached. Start with target_long_side = 0, strength = 0.50 and balanced motion. Set a larger target long side to upscale; use coverage off for a spatial-only comparison.\n\nThe source prompt here contains hard cuts. For a cleaner motion benchmark, also test a single continuous shot. This node does not detect or split cuts.\n\nRequires current ComfyUI, ComfyUI-MAINodes and ComfyUI-KJNodes (the example's optional attention patches). Select your local model files and upload your own reference image."
+      ],
+      "color": "#432",
+      "bgcolor": "#653",
+      "title": "START HERE"
+    },
+    {
+      "id": 9903,
+      "type": "MarkdownNote",
+      "pos": [
+        1540,
+        1010
+      ],
+      "size": [
+        1320,
+        385
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "text": "The saved attention setup uses SageAttention. If unavailable, bypass both attention patch nodes. Keep the video and audio VAEs distinct.\n\nMotion Refine defaults to whole-expanded-clip sampling for comparison with the original workflow. If needed, set context_budget (e.g. 124) to use overlapping H3-aware windows. Context budgeting is not a hard limit on total memory.\n\nThe exported video keeps the baseline soundtrack at 24 fps. No additional audio output is generated."
+      },
+      "widgets_values": [
+        "The saved attention setup uses SageAttention. If unavailable, bypass both attention patch nodes. Keep the video and audio VAEs distinct.\n\nMotion Refine defaults to whole-expanded-clip sampling for comparison with the original workflow. If needed, set context_budget (e.g. 124) to use overlapping H3-aware windows. Context budgeting is not a hard limit on total memory.\n\nThe exported video keeps the baseline soundtrack at 24 fps. No additional audio output is generated."
+      ],
+      "color": "#432",
+      "bgcolor": "#653",
+      "title": "SETUP / MEMORY"
+    }
+  ],
+  "links": [
+    [
+      1,
+      133,
+      0,
+      132,
+      0,
+      "FLOAT"
+    ],
+    [
+      2,
+      127,
+      0,
+      300,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      128,
+      0,
+      131,
+      0,
+      "CLIP"
+    ],
+    [
+      4,
+      119,
+      0,
+      131,
+      1,
+      "VAE"
+    ],
+    [
+      5,
+      120,
+      0,
+      131,
+      2,
+      "VAE"
+    ],
+    [
+      6,
+      115,
+      0,
+      131,
+      9,
+      "INT"
+    ],
+    [
+      7,
+      115,
+      1,
+      131,
+      10,
+      "INT"
+    ],
+    [
+      8,
+      132,
+      1,
+      131,
+      11,
+      "INT"
+    ],
+    [
+      9,
+      234,
+      0,
+      131,
+      3,
+      "IMAGE"
+    ],
+    [
+      17,
+      300,
+      0,
+      301,
+      0,
+      "MODEL"
+    ],
+    [
+      18,
+      301,
+      0,
+      302,
+      0,
+      "MODEL"
+    ],
+    [
+      19,
+      302,
+      0,
+      124,
+      0,
+      "MODEL"
+    ],
+    [
+      20,
+      302,
+      0,
+      126,
+      0,
+      "MODEL"
+    ],
+    [
+      21,
+      131,
+      0,
+      126,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      23,
+      129,
+      0,
+      125,
+      0,
+      "NOISE"
+    ],
+    [
+      24,
+      126,
+      0,
+      125,
+      1,
+      "GUIDER"
+    ],
+    [
+      25,
+      135,
+      0,
+      125,
+      2,
+      "SAMPLER"
+    ],
+    [
+      26,
+      124,
+      0,
+      125,
+      3,
+      "SIGMAS"
+    ],
+    [
+      27,
+      131,
+      1,
+      125,
+      4,
+      "LATENT"
+    ],
+    [
+      31,
+      125,
+      0,
+      121,
+      0,
+      "LATENT"
+    ],
+    [
+      32,
+      120,
+      0,
+      121,
+      1,
+      "VAE"
+    ],
+    [
+      38,
+      121,
+      0,
+      130,
+      1,
+      "AUDIO"
+    ],
+    [
+      41,
+      130,
+      0,
+      92,
+      0,
+      "VIDEO"
+    ],
+    [
+      80,
+      9400,
+      0,
+      131,
+      8,
+      "STRING"
+    ],
+    [
+      10001,
+      302,
+      0,
+      9900,
+      0,
+      "MODEL"
+    ],
+    [
+      10002,
+      131,
+      0,
+      9900,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      10003,
+      125,
+      0,
+      9900,
+      2,
+      "LATENT"
+    ],
+    [
+      10004,
+      119,
+      0,
+      9900,
+      3,
+      "VAE"
+    ],
+    [
+      10005,
+      120,
+      0,
+      9900,
+      4,
+      "VAE"
+    ],
+    [
+      10006,
+      9900,
+      0,
+      130,
+      0,
+      "IMAGE"
+    ],
+    [
+      10007,
+      9900,
+      1,
+      9901,
+      0,
+      "*"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "01  SOURCE | reference, prompt & size",
+      "bounding": [
+        0,
+        0,
+        1450,
+        1460
+      ],
+      "color": "#385d80",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "02  MODELS | shared by both passes",
+      "bounding": [
+        1500,
+        0,
+        1400,
+        1460
+      ],
+      "color": "#385d80",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "03  BASELINE | cached first pass",
+      "bounding": [
+        0,
+        1530,
+        1450,
+        1290
+      ],
+      "color": "#3c7464",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "04  MOTION REFINE | one node + export",
+      "bounding": [
+        1500,
+        1530,
+        1400,
+        1290
+      ],
+      "color": "#6f5485",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5,
+      "offset": [
+        170,
+        210
+      ]
+    }
+  },
+  "version": 0.4
+}

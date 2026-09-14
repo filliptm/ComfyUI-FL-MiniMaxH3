@@ -11,6 +11,7 @@ from comfy_api.latest import io
 from comfy_extras import nodes_minimax_h3 as minimax_h3
 
 from ._latent_helpers import h3_tensors
+from ._shot_references import resolve_shot_references
 
 
 H3Timeline = io.Custom("FL_H3_TIMELINE")
@@ -1409,6 +1410,8 @@ def _beat_shot_sections(schedule):
             "start_frame": start_frame,
             "end_frame": end_frame,
             "render_group": render_group,
+            "section_id": raw.get("section_id"),
+            "references": raw.get("references"),
         })
 
     if not resolved:
@@ -1672,7 +1675,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 io.Autogrow.Input(
                     "ref_audios",
                     optional=True,
-                    tooltip="Additional global audio references applied after the shot-local timeline audio.",
+                    tooltip="Default audio references applied after the shot-local timeline audio.",
                     template=io.Autogrow.TemplatePrefix(
                         input=io.Audio.Input("ref_audio"),
                         prefix="ref_audio_",
@@ -1680,6 +1683,8 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                         max=3,
                     ),
                 ),
+                io.Custom("FL_PROMPT_REFERENCES").Input("reference_library", optional=True,
+                    tooltip="Resolved assets from FL Prompt Reference Library for custom section selections."),
             ],
             outputs=[
                 H3ShotPlan.Output(
@@ -1733,6 +1738,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
         prompt_schedule=None,
         timeline_audio=None,
         length=None,
+        reference_library=None,
     ):
         is_manual = prompt_schedule is None
         if is_manual:
@@ -1766,6 +1772,8 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
         manual_semantic = None
 
         for index, section_group in enumerate(section_groups):
+            shot_images, shot_videos, shot_video_audios, shot_audios, asset_ids = resolve_shot_references(
+                section_group, reference_library, ref_images, ref_videos, ref_video_audios, ref_audios, reference_cache)
             start_frame = section_group[0]["start_frame"]
             end_frame = section_group[-1]["end_frame"]
             authored_frames = end_frame - start_frame
@@ -1786,9 +1794,9 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 height,
                 render_frames,
                 ref_image_size,
-                ref_images,
-                ref_videos,
-                ref_video_audios,
+                shot_images,
+                shot_videos,
+                shot_video_audios,
                 None,
                 reference_cache,
                 visual_reference_mode,
@@ -1833,7 +1841,7 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                 None,
                 None,
                 None,
-                ref_audios,
+                shot_audios,
                 reference_cache,
             )
             ref_items.extend(extra_ref_items)
@@ -1952,6 +1960,9 @@ class FL_MiniMaxH3BeatShotPlanner(io.ComfyNode):
                     "reference_free_global_conditioning": reference_free_global_conditioning,
                 })
             shot = {
+                "reference_asset_ids": asset_ids,
+                "reference_mode": (section_group[0].get("references") or {}).get("mode", "defaults"),
+                "section_ids": [section.get("section_id") for section in section_group],
                 "index": index,
                 "start_frame": start_frame,
                 "end_frame": end_frame,

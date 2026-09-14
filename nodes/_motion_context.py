@@ -3,6 +3,7 @@ import torch
 import comfy.ldm.minimax.model as minimax_model
 import comfy.nested_tensor
 import comfy.patcher_extension
+import comfy.utils
 from comfy_extras import nodes_minimax_h3 as minimax_h3
 
 
@@ -194,7 +195,7 @@ def _decode_video_window(video, start_frame, end_frame, vae):
     return images, start_frame - frame_offset, end_frame - frame_offset
 
 
-def _video_keyframes(previous, authored_frames, trim_frames, context_frames, vae):
+def _video_keyframes(previous, authored_frames, trim_frames, context_frames, vae, target_size=None, upscale_method="lanczos"):
     video, _ = _h3_tensors(previous)
     authored_end = trim_frames + authored_frames
     images, context_start, context_end = _decode_video_window(
@@ -210,7 +211,10 @@ def _video_keyframes(previous, authored_frames, trim_frames, context_frames, vae
         )
     if context_start < 0 or images.shape[1] < context_end:
         raise ValueError("FL MiniMax H3 motion context decoded too few source frames.")
-    encoded = vae.encode(images[0, context_start:context_end])
+    images = images[0, context_start:context_end]
+    if target_size is not None and (images.shape[2], images.shape[1]) != target_size:
+        images = comfy.utils.common_upscale(images.movedim(-1, 1), *target_size, upscale_method, "disabled").movedim(1, -1)
+    encoded = vae.encode(images)
     expected_steps = VIDEO_CONTEXT_STEPS[context_frames]
     if encoded.ndim != 5 or encoded.shape[0] != 1 or encoded.shape[2] != expected_steps:
         raise ValueError(
@@ -252,7 +256,7 @@ def _audio_reference(previous, authored_frames, trim_frames, audio_frames, video
     }
 
 
-def apply_previous_shot_contexts(conditionings, previous, source_shot, target_shot, vae):
+def apply_previous_shot_contexts(conditionings, previous, source_shot, target_shot, vae, target_size=None, upscale_method="lanczos"):
     context = target_shot.get("motion_context")
     if not isinstance(context, dict):
         return conditionings
@@ -277,6 +281,8 @@ def apply_previous_shot_contexts(conditionings, previous, source_shot, target_sh
             trim_frames,
             video_frames,
             vae,
+            target_size,
+            upscale_method,
         )
     audio_ref = None
     if audio_frames:
@@ -305,11 +311,13 @@ def apply_previous_shot_contexts(conditionings, previous, source_shot, target_sh
     return resolved_conditionings
 
 
-def apply_previous_shot_context(conditioning, previous, source_shot, target_shot, vae):
+def apply_previous_shot_context(conditioning, previous, source_shot, target_shot, vae, target_size=None, upscale_method="lanczos"):
     return apply_previous_shot_contexts(
         [conditioning],
         previous,
         source_shot,
         target_shot,
         vae,
+        target_size,
+        upscale_method,
     )[0]
